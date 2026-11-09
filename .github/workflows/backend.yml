@@ -1,26 +1,64 @@
 name: Backend quality
+
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
+    name: Backend (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, ubuntu-26.04, macos-latest]
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - name: Check out source
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
+
+      - name: Install uv and select Python
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: '0.13.7'
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
+
+      - name: Install locked dependencies
         run: uv sync --all-groups --locked
-      - name: Python tests and static checks
+
+      - name: Verify selected Python version
         run: |
-          uv run --locked python -m compileall -q src tests
+          uv run --locked python -c 'import sys; expected = tuple(map(int, "${{ matrix.python-version }}".split("."))); assert sys.version_info[:2] == expected, (sys.version, expected); print(sys.version)'
+
+      - name: Python tests, formatting, types, and coverage
+        run: |
+          uv run --locked python -m compileall -q src tests scripts
           uv run --locked ruff check src tests scripts
           uv run --locked ruff format --check src tests scripts
           uv run --locked mypy src
-          uv run --locked pytest -q --cov=asca --cov-branch --cov-report=term-missing
+          uv run --locked pytest -q --cov=asca --cov-branch --cov-report=term-missing --cov-fail-under=85
+
+  backend-gate:
+    name: Backend quality gate
+    if: ${{ always() }}
+    needs: [backend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all backend matrix jobs to succeed
+        env:
+          MATRIX_RESULT: ${{ needs.backend.result }}
+        run: test "$MATRIX_RESULT" = 'success'

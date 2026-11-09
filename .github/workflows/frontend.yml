@@ -1,22 +1,65 @@
 name: Frontend quality
+
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    name: Frontend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - run: npm ci
+
+      - name: Install locked dependencies
+        run: npm ci
         working-directory: apps/web
-      - run: npm run typecheck
+
+      - name: Type-check frontend
+        run: npm run typecheck
         working-directory: apps/web
-      - run: npm run test:run
+
+      - name: Run frontend tests
+        run: npm run test:run
         working-directory: apps/web
-      - run: npm run build
+
+      - name: Build frontend
+        run: npm run build
         working-directory: apps/web
+
+  frontend-gate:
+    name: Frontend quality gate
+    if: ${{ always() }}
+    needs: [frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all frontend matrix jobs to succeed
+        env:
+          MATRIX_RESULT: ${{ needs.frontend.result }}
+        run: test "$MATRIX_RESULT" = 'success'
