@@ -13,7 +13,7 @@ The initial workflows passed on macOS and Ubuntu, but they used actions with dep
 1. Require a pull request for changes to `main` and configure zero required human approvals while the project has one maintainer.
 2. Run backend tests on Ubuntu 24.04, Ubuntu 26.04, and macOS, with Python 3.11–3.13.
 3. Run frontend checks on Ubuntu 24.04 and Ubuntu 26.04 with Node.js 22.
-4. Upgrade `checkout` to v7, `setup-node` to v7, and `setup-uv` to v10.
+4. Upgrade `checkout` to v7, `setup-node` to v7, and `setup-uv` to v7.
 5. Limit `GITHUB_TOKEN` permissions to read-only repository contents; do not persist checkout credentials.
 6. Add stable `Backend quality gate` and `Frontend quality gate` aggregation jobs. Each must fail if any job in its matrix fails.
 7. Enforce locked dependency installations and a minimum of 85% combined backend branch-and-statement coverage in CI.

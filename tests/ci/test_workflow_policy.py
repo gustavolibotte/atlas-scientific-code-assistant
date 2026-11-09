@@ -47,7 +47,7 @@ def test_backend_runs_three_python_versions_and_macos() -> None:
     content = workflow("backend.yml")
     assert "os: [ubuntu-24.04, ubuntu-26.04, macos-latest]" in content
     assert "python-version: ['3.11', '3.12', '3.13']" in content
-    assert "astral-sh/setup-uv@v10" in content
+    assert "astral-sh/setup-uv@v7" in content
     assert "version: '0.13.7'" in content
     assert "uv sync --all-groups --locked" in content
     assert "Verify selected Python version" in content
