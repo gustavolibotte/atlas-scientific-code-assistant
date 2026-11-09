@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+*.egg-info/
+diagnostics/
+*.zip
+.DS_Store
+.idea/
+.vscode/
+
+# TypeScript incremental build artifacts
+*.tsbuildinfo
+
+# Generated Vite configuration artifacts
+/apps/web/vite.config.js
+/apps/web/vite.config.d.ts

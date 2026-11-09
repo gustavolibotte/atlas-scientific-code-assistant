@@ -1,0 +1,26 @@
+name: Backend quality
+on:
+  push:
+  pull_request:
+jobs:
+  backend:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: uv sync --all-groups --locked
+      - name: Python tests and static checks
+        run: |
+          uv run --locked python -m compileall -q src tests
+          uv run --locked ruff check src tests scripts
+          uv run --locked ruff format --check src tests scripts
+          uv run --locked mypy src
+          uv run --locked pytest -q --cov=asca --cov-branch --cov-report=term-missing
