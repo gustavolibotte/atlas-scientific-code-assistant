@@ -1,6 +1,7 @@
 """Versioned transport models, independent from domain entities."""
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -73,3 +74,13 @@ class TraceResponse(StrictModel):
     evidence: list[EvidenceDTO]
     symbols: list[SymbolDTO]
     verifications: list[VerificationDTO]
+
+
+class IdentityStatusResponse(StrictModel):
+    """Public status only; never exposes OIDC configuration or credentials."""
+
+    provider: Literal["cern"] = "cern"
+    status: Literal["not_configured"] = "not_configured"
+    authentication_enabled: bool = False
+    protocol: Literal["oidc_authorization_code_pkce"] = "oidc_authorization_code_pkce"
+    note: str = "OIDC contracts only; login, callbacks and token exchange are disabled."

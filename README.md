@@ -83,3 +83,10 @@ Failed or skipped checks must not be interpreted as successful checks.
 Start with a private repository. Do not commit CERN passwords, API credentials,
 SSO tokens, or internal collaboration documents. A license will be selected deliberately
 before public distribution. This project has no direct affiliation with CERN or ATLAS.
+
+
+## Phase 1A.1 — Offline identity foundation
+
+Authorization Code + PKCE S256 contracts, browser-bound transaction correlation and an isolated memory store are provided for tests only. CERN SSO authentication, browser callbacks, token exchange, JWT verification, and real sessions are **not implemented**. The public `/api/v1/identity/status` endpoint reports this accurately.
+
+See [ADR 0004](docs/adr/0004-oidc-authentication-boundaries.md), the [OIDC security boundary](docs/security/oidc-identity-foundation.md) and the [Phase 1A.1 acceptance checklist](docs/development/phase1a1-acceptance.md).
