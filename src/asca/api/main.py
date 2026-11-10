@@ -13,6 +13,7 @@ from asca.api.schemas import (
     CapabilityState,
     DecisionDTO,
     EvidenceDTO,
+    IdentityStatusResponse,
     LiveResponse,
     ReadyResponse,
     SymbolDTO,
@@ -100,6 +101,11 @@ def create_app() -> FastAPI:
                 ),
             ]
         )
+
+    @app.get("/api/v1/identity/status", response_model=IdentityStatusResponse, tags=["identity"])
+    def identity_status() -> IdentityStatusResponse:
+        """Disclose that CERN login is not yet configured or available."""
+        return IdentityStatusResponse()
 
     @app.get("/api/v1/demo/trace", response_model=TraceResponse, tags=["demo"])
     def demo_trace() -> TraceResponse:
