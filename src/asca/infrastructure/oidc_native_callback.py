@@ -24,6 +24,8 @@ from asca.domain.oidc_registration import OidcClientMode, OidcClientRegistration
 _STATE = re.compile(r"[A-Za-z0-9_-]{43,128}\Z", re.ASCII)
 _CODE = re.compile(r"[\x21-\x7E]{1,2048}\Z", re.ASCII)
 _ERROR = re.compile(r"[A-Za-z0-9._~-]{1,128}\Z", re.ASCII)
+# Provider-specific, non-authoritative Keycloak callback metadata.
+_SESSION_STATE = re.compile(r"[A-Za-z0-9._~-]{1,128}\Z", re.ASCII)
 _HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}\Z", re.ASCII)
 _HEX = frozenset("0123456789abcdefABCDEF")
 _FORBIDDEN_HEADERS = frozenset(
@@ -41,7 +43,7 @@ _FORBIDDEN_HEADERS = frozenset(
         "upgrade",
     }
 )
-_ALLOWED_QUERY = frozenset({"state", "code", "error", "iss"})
+_ALLOWED_QUERY = frozenset({"state", "code", "error", "iss", "session_state"})
 
 
 def _ip_literal(value: object) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
@@ -78,7 +80,7 @@ def _parse_query(raw: str) -> ParsedUntrustedNativeCallback:
             raw,
             keep_blank_values=True,
             strict_parsing=True,
-            max_num_fields=3,
+            max_num_fields=4,
             encoding="ascii",
             errors="strict",
         )
@@ -91,12 +93,14 @@ def _parse_query(raw: str) -> ParsedUntrustedNativeCallback:
     code = params.get("code")
     error = params.get("error")
     response_issuer = params.get("iss")
+    session_state = params.get("session_state")
     if (
         _STATE.fullmatch(state) is None
         or (code is None) == (error is None)
         or (code is not None and _CODE.fullmatch(code) is None)
         or (error is not None and _ERROR.fullmatch(error) is None)
         or (response_issuer is not None and response_issuer != CERN_OIDC_ISSUER)
+        or (session_state is not None and _SESSION_STATE.fullmatch(session_state) is None)
     ):
         raise OidcNativeCallbackError("Invalid native callback parameters")
     return ParsedUntrustedNativeCallback(
