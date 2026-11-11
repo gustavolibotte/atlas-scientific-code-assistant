@@ -17,11 +17,13 @@ import re
 from asca.application.oidc_claims import validate_untrusted_oidc_id_token_claims
 from asca.application.oidc_discovery import CERN_OIDC_ISSUER
 from asca.application.oidc_jwks import CERN_OIDC_JWKS_URI, parse_cern_public_jwks
-from asca.domain.oidc_claims import OidcClaimsError
+from asca.application.oidc_role_claims import inspect_untrusted_cern_application_role
+from asca.domain.oidc_claims import ClaimsCheckedUntrustedOidcPayload, OidcClaimsError
 from asca.domain.oidc_discovery import OidcProviderMetadata
 from asca.domain.oidc_jwks import OidcJwksError
 from asca.domain.oidc_jwks_http import FetchedUnverifiedOidcJwks, OidcJwksHttpError
-from asca.domain.oidc_jws import OidcJwsError
+from asca.domain.oidc_jws import OidcJwsError, SignatureCheckedUntrustedOidcPayload
+from asca.domain.oidc_role_claims import OidcRoleClaimsError, UntrustedCernRoleObservation
 from asca.domain.oidc_token_response import ParsedUnverifiedOidcTokenResponse
 from asca.domain.oidc_verification import CheckedUntrustedCernOidcToken, OidcVerificationError
 from asca.infrastructure.oidc_jwks_http import HttpsCernOidcJwksFetcher
@@ -107,7 +109,7 @@ class CernOidcVerificationPipeline:
             raise OidcVerificationError("Invalid CERN OIDC verification transport")
         self._fetcher = fetcher if fetcher is not None else HttpsCernOidcJwksFetcher()
 
-    def check(
+    def _verified_payload(
         self,
         tokens: ParsedUnverifiedOidcTokenResponse,
         metadata: OidcProviderMetadata,
@@ -118,11 +120,11 @@ class CernOidcVerificationPipeline:
         clock_skew_seconds: int = 60,
         max_token_lifetime_seconds: int = 3_600,
         trusted_additional_audiences: tuple[str, ...] = (),
-    ) -> CheckedUntrustedCernOidcToken:
-        """Complete checks without authenticating a user or creating a session.
+    ) -> tuple[SignatureCheckedUntrustedOidcPayload, ClaimsCheckedUntrustedOidcPayload]:
+        """Return signature and claims checks from one constrained JWKS retrieval.
 
-        Client ID and nonce MUST come from separately trusted, replay-safe flow
-        context. This method does not consume pending authorization state.
+        No external signature-checked payload can enter this composition.
+        These objects are still non-authoritative and forgeable in Python.
         """
         _validate_before_fetch(
             tokens,
@@ -160,6 +162,31 @@ class CernOidcVerificationPipeline:
             )
         except (OidcJwksHttpError, OidcJwksError, OidcJwsError, OidcClaimsError):
             raise OidcVerificationError("CERN OIDC token verification was rejected") from None
+        return checked_signature, checked_claims
+
+    def check(
+        self,
+        tokens: ParsedUnverifiedOidcTokenResponse,
+        metadata: OidcProviderMetadata,
+        *,
+        expected_client_id: str,
+        expected_nonce: str,
+        now: int,
+        clock_skew_seconds: int = 60,
+        max_token_lifetime_seconds: int = 3_600,
+        trusted_additional_audiences: tuple[str, ...] = (),
+    ) -> CheckedUntrustedCernOidcToken:
+        """Check an ID token without authenticating or authorizing its caller."""
+        _, checked_claims = self._verified_payload(
+            tokens,
+            metadata,
+            expected_client_id=expected_client_id,
+            expected_nonce=expected_nonce,
+            now=now,
+            clock_skew_seconds=clock_skew_seconds,
+            max_token_lifetime_seconds=max_token_lifetime_seconds,
+            trusted_additional_audiences=trusted_additional_audiences,
+        )
         return CheckedUntrustedCernOidcToken(
             issuer=checked_claims.issuer,
             subject=checked_claims.subject,
@@ -169,3 +196,41 @@ class CernOidcVerificationPipeline:
             kid=checked_claims.kid,
             source_url=CERN_OIDC_JWKS_URI,
         )
+
+    def observe_role(
+        self,
+        tokens: ParsedUnverifiedOidcTokenResponse,
+        metadata: OidcProviderMetadata,
+        *,
+        expected_client_id: str,
+        expected_nonce: str,
+        expected_role: str,
+        now: int,
+    ) -> UntrustedCernRoleObservation:
+        """Observe one role only from the same newly signature-verified ID token.
+
+        The fixed strict default audience and time policy applies. This method
+        does not consume a native transaction or attest CERN identity/roles.
+        No session, authorization grant or chATLAS capability is created.
+        """
+        signed, _ = self._verified_payload(
+            tokens,
+            metadata,
+            expected_client_id=expected_client_id,
+            expected_nonce=expected_nonce,
+            now=now,
+            clock_skew_seconds=60,
+            max_token_lifetime_seconds=3_600,
+            trusted_additional_audiences=(),
+        )
+        try:
+            return inspect_untrusted_cern_application_role(
+                signed,
+                expected_client_id=expected_client_id,
+                expected_nonce=expected_nonce,
+                expected_role=expected_role,
+                now=now,
+                expected_access_token=tokens.access_token,
+            )
+        except (OidcRoleClaimsError, TypeError, ValueError, AttributeError):
+            raise OidcVerificationError("CERN OIDC role observation was rejected") from None
