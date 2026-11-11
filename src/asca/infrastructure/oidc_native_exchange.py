@@ -38,6 +38,7 @@ from asca.infrastructure.oidc_verification import CernOidcVerificationPipeline
 
 _ALLOWED_ALGORITHMS = frozenset({"RS256", "PS256", "ES256"})
 _CODE = re.compile(r"[\x21-\x7E]{1,2048}\Z", re.ASCII)
+_DENIAL = re.compile(r"[A-Za-z0-9._~-]{1,128}\Z", re.ASCII)
 _MAX_TIME = 2**53
 
 
@@ -133,6 +134,44 @@ class CernOidcNativeCodeExchange:
             return self._service.begin()
         except (TypeError, ValueError, OverflowError):
             raise OidcNativeExchangeError("OIDC authorization attempt was rejected") from None
+
+    @property
+    def callback_registration(self) -> OidcClientRegistration:
+        """Expose the declared native callback URI, not registration attestation."""
+        return self._registration
+
+    def reject_callback(
+        self,
+        *,
+        browser_binding: str,
+        state: str,
+        error: str,
+        response_issuer: str | None = None,
+    ) -> None:
+        """Atomically consume a correlated OAuth denial without any token POST.
+
+        The same in-process attempt store is used for success and denial. A
+        denial cannot be replayed as a success. No code/verifier is returned.
+        """
+        if (
+            not isinstance(browser_binding, str)
+            or not browser_binding
+            or not isinstance(state, str)
+            or not state
+            or not isinstance(error, str)
+            or _DENIAL.fullmatch(error) is None
+            or (
+                response_issuer is not None
+                and (not isinstance(response_issuer, str) or response_issuer != CERN_OIDC_ISSUER)
+            )
+        ):
+            raise OidcNativeExchangeError("Invalid OIDC native denial input")
+        try:
+            # The store synchronizes success and denial on the SAME binding.
+            # An invalid state never consumes a different pending attempt.
+            self._store.consume(browser_binding, state, now=self._checked_clock())
+        except (AuthenticationFlowError, TypeError, ValueError, OverflowError):
+            raise OidcNativeExchangeError("OIDC native denial was rejected") from None
 
     def exchange_callback(
         self,
