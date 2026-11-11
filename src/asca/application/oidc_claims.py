@@ -7,6 +7,8 @@ claims checks and replay-safe authorization state before enabling any login.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import hmac
 import json
 import re
@@ -26,7 +28,8 @@ _NONCE = re.compile(r"[A-Za-z0-9_-]{16,256}\Z", re.ASCII)
 _SUBJECT = re.compile(r"[\x21-\x7E]{1,255}\Z", re.ASCII)
 _AUDIENCE = re.compile(r"[\x21-\x7E]{1,256}\Z", re.ASCII)
 _APPROVED_ALGORITHMS = frozenset({"RS256", "PS256", "ES256"})
-_PROHIBITED_UNBOUND_HASHES = frozenset({"at_hash", "c_hash", "s_hash"})
+_PROHIBITED_UNBOUND_HASHES = frozenset({"c_hash", "s_hash"})
+_ACCESS_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+={0,64}\Z", re.ASCII)
 
 
 def _unique_members(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -83,12 +86,42 @@ def _audiences(value: object) -> tuple[str, ...]:
     return values
 
 
+def _validate_optional_at_hash(
+    document: dict[str, object], *, expected_access_token: str | None, algorithm: str
+) -> None:
+    """Bind a signed optional at_hash to this token endpoint response only.
+
+    For RS256, PS256 and ES256, OIDC specifies SHA-256, leftmost 128 bits,
+    base64url without padding. No token or hash value is returned or stored.
+    A direct claims call without the matching token must fail closed.
+    """
+    if "at_hash" not in document:
+        return
+    if expected_access_token is None:
+        raise OidcClaimsError("OIDC ID-token contains unsupported token-binding hash claims")
+    supplied = document["at_hash"]
+    if (
+        not isinstance(supplied, str)
+        or re.fullmatch(r"[A-Za-z0-9_-]{22}", supplied, re.ASCII) is None
+        or not isinstance(expected_access_token, str)
+        or not 1 <= len(expected_access_token) <= 16_384
+        or _ACCESS_TOKEN.fullmatch(expected_access_token) is None
+        or algorithm not in _APPROVED_ALGORITHMS
+    ):
+        raise OidcClaimsError("Invalid OIDC ID-token access-token hash binding")
+    digest = hashlib.sha256(expected_access_token.encode("ascii")).digest()
+    computed = base64.urlsafe_b64encode(digest[: len(digest) // 2]).rstrip(b"=").decode("ascii")
+    if not hmac.compare_digest(supplied, computed):
+        raise OidcClaimsError("OIDC ID-token access-token hash did not match")
+
+
 def validate_untrusted_oidc_id_token_claims(
     checked: SignatureCheckedUntrustedOidcPayload,
     *,
     expected_client_id: str,
     expected_nonce: str,
     now: int,
+    expected_access_token: str | None = None,
     clock_skew_seconds: int = 60,
     max_token_lifetime_seconds: int = 3_600,
     trusted_additional_audiences: tuple[str, ...] = (),
@@ -134,6 +167,9 @@ def validate_untrusted_oidc_id_token_claims(
     document = _parse_claims(checked.payload)
     if _PROHIBITED_UNBOUND_HASHES.intersection(document):
         raise OidcClaimsError("OIDC ID-token contains unsupported token-binding hash claims")
+    _validate_optional_at_hash(
+        document, expected_access_token=expected_access_token, algorithm=checked.algorithm
+    )
 
     issuer = document.get("iss")
     subject = document.get("sub")

@@ -153,6 +153,7 @@ class CernOidcVerificationPipeline:
                 expected_client_id=expected_client_id,
                 expected_nonce=expected_nonce,
                 now=now,
+                expected_access_token=tokens.access_token,
                 clock_skew_seconds=clock_skew_seconds,
                 max_token_lifetime_seconds=max_token_lifetime_seconds,
                 trusted_additional_audiences=trusted_additional_audiences,
