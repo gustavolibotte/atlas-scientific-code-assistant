@@ -18,6 +18,7 @@ from asca.domain.oidc_native_exchange import (
 )
 from asca.domain.oidc_native_lifecycle import NativeCallbackDenied, OidcNativeLifecycleError
 from asca.domain.oidc_registration import OidcClientMode, OidcClientRegistration
+from asca.domain.oidc_role_claims import UntrustedCernRoleObservation
 from asca.infrastructure.oidc_native_callback import CernNativeLoopbackCallbackPolicy
 from asca.infrastructure.oidc_native_exchange import CernOidcNativeCodeExchange
 
@@ -113,3 +114,58 @@ class CernNativeCallbackLifecycle:
             AttributeError,
         ):
             raise OidcNativeLifecycleError("Native callback lifecycle was rejected") from None
+
+    def complete_role_observation(
+        self,
+        *,
+        request: NativeLoopbackHttpRequest,
+        protected_binding: str,
+    ) -> UntrustedCernRoleObservation | NativeCallbackDenied:
+        """Inspect one role after the same strict, single-use native callback.
+
+        The binding MUST remain private to the host and cannot come from
+        callback parameters. Denials consume their associated pending attempt.
+        This separate path does not change the existing complete() behavior.
+        """
+        if not isinstance(protected_binding, str) or _BINDING.fullmatch(protected_binding) is None:
+            raise OidcNativeLifecycleError("Native role callback lifecycle was rejected")
+        try:
+            registration = self._exchange.callback_registration
+            if (
+                type(registration) is not OidcClientRegistration
+                or type(registration.mode) is not OidcClientMode
+                or (
+                    registration.client_id,
+                    registration.redirect_uri,
+                    registration.mode,
+                    registration.scopes,
+                )
+                != self._registration_snapshot
+            ):
+                raise OidcNativeLifecycleError("Native role callback lifecycle was rejected")
+            parsed = self._policy.parse(request)
+            if parsed.error is not None:
+                self._exchange.reject_callback(
+                    browser_binding=protected_binding,
+                    state=parsed.state,
+                    error=parsed.error,
+                    response_issuer=parsed.response_issuer,
+                )
+                return NativeCallbackDenied()
+            if parsed.code is None:
+                raise OidcNativeLifecycleError("Native role callback lifecycle was rejected")
+            return self._exchange.exchange_callback_observe_role(
+                browser_binding=protected_binding,
+                state=parsed.state,
+                code=parsed.code,
+                response_issuer=parsed.response_issuer,
+            )
+        except (
+            OidcNativeCallbackError,
+            OidcNativeExchangeError,
+            OidcNativeLifecycleError,
+            ValueError,
+            TypeError,
+            AttributeError,
+        ):
+            raise OidcNativeLifecycleError("Native role callback lifecycle was rejected") from None

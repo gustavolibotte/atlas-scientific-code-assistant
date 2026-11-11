@@ -30,6 +30,7 @@ from asca.domain.oidc_native_exchange import (
     OidcNativeExchangeError,
 )
 from asca.domain.oidc_registration import OidcClientMode, OidcClientRegistration
+from asca.domain.oidc_role_claims import UntrustedCernRoleObservation
 from asca.domain.oidc_token_http import OidcTokenHttpError, UnverifiedOidcTokenHttpResponse
 from asca.domain.oidc_token_request import OidcTokenRequestError
 from asca.domain.oidc_token_response import OidcTokenResponseError
@@ -42,6 +43,16 @@ _ALLOWED_ALGORITHMS = frozenset({"RS256", "PS256", "ES256"})
 _CODE = re.compile(r"[\x21-\x7E]{1,2048}\Z", re.ASCII)
 _DENIAL = re.compile(r"[A-Za-z0-9._~-]{1,128}\Z", re.ASCII)
 _MAX_TIME = 2**53
+_OBSERVED_ROLE = "asca-developer"
+_ROLE_STATUSES = frozenset(
+    {
+        "claimed",
+        "absent",
+        "mfa_required",
+        "loa_required",
+        "mfa_and_loa_required",
+    }
+)
 
 
 class CernOidcNativeCodeExchange:
@@ -210,14 +221,15 @@ class CernOidcNativeCodeExchange:
         except (AuthenticationFlowError, TypeError, ValueError, OverflowError):
             raise OidcNativeExchangeError("OIDC native denial was rejected") from None
 
-    def exchange_callback(
+    def _exchange_callback(
         self,
         *,
         browser_binding: str,
         state: str,
         code: str,
         response_issuer: str | None = None,
-    ) -> ExchangedUntrustedCernOidcToken:
+        expected_role: str | None = None,
+    ) -> ExchangedUntrustedCernOidcToken | UntrustedCernRoleObservation:
         """Consume once, POST the original code/PKCE, verify the returned ID token.
 
         A native host MUST obtain binding/state/code from its protected loopback
@@ -225,7 +237,8 @@ class CernOidcNativeCodeExchange:
         This method never accepts a caller-supplied token or code verifier.
         """
         if (
-            not isinstance(code, str)
+            (expected_role is not None and expected_role != _OBSERVED_ROLE)
+            or not isinstance(code, str)
             or _CODE.fullmatch(code) is None
             or not isinstance(browser_binding, str)
             or not browser_binding
@@ -259,13 +272,24 @@ class CernOidcNativeCodeExchange:
             if not isinstance(response, UnverifiedOidcTokenHttpResponse):
                 raise OidcNativeExchangeError("OIDC token exchange response was rejected")
             tokens = parse_unverified_oidc_token_response(response)
-            checked = self._verifier.check(
-                tokens,
-                self._metadata,
-                expected_client_id=self._client_id,
-                expected_nonce=grant.nonce,
-                now=int(self._checked_clock()),
-            )
+            checked: CheckedUntrustedCernOidcToken | UntrustedCernRoleObservation
+            if expected_role is None:
+                checked = self._verifier.check(
+                    tokens,
+                    self._metadata,
+                    expected_client_id=self._client_id,
+                    expected_nonce=grant.nonce,
+                    now=int(self._checked_clock()),
+                )
+            else:
+                checked = self._verifier.observe_role(
+                    tokens,
+                    self._metadata,
+                    expected_client_id=self._client_id,
+                    expected_nonce=grant.nonce,
+                    expected_role=expected_role,
+                    now=int(self._checked_clock()),
+                )
         except (
             AuthenticationFlowError,
             OidcNativeExchangeError,
@@ -278,6 +302,16 @@ class CernOidcNativeCodeExchange:
             OverflowError,
         ):
             raise OidcNativeExchangeError("OIDC native code exchange was rejected") from None
+        if expected_role is not None:
+            if (
+                not isinstance(checked, UntrustedCernRoleObservation)
+                or type(checked) is not UntrustedCernRoleObservation
+                or checked.status not in _ROLE_STATUSES
+                or checked.authorization != "not_implemented"
+                or checked.login != "not_implemented"
+            ):
+                raise OidcNativeExchangeError("OIDC native role observation was rejected")
+            return checked
         if (
             not isinstance(checked, CheckedUntrustedCernOidcToken)
             or checked.issuer != CERN_OIDC_ISSUER
@@ -298,3 +332,46 @@ class CernOidcNativeCodeExchange:
             algorithm=checked.algorithm,
             kid=checked.kid,
         )
+
+    def exchange_callback(
+        self,
+        *,
+        browser_binding: str,
+        state: str,
+        code: str,
+        response_issuer: str | None = None,
+    ) -> ExchangedUntrustedCernOidcToken:
+        """Preserve the existing non-authenticating token verification outcome."""
+        result = self._exchange_callback(
+            browser_binding=browser_binding,
+            state=state,
+            code=code,
+            response_issuer=response_issuer,
+        )
+        if type(result) is not ExchangedUntrustedCernOidcToken:
+            raise OidcNativeExchangeError("OIDC native code exchange was rejected")
+        return result
+
+    def exchange_callback_observe_role(
+        self,
+        *,
+        browser_binding: str,
+        state: str,
+        code: str,
+        response_issuer: str | None = None,
+    ) -> UntrustedCernRoleObservation:
+        """Inspect the fixed CERN application role during one consumed exchange.
+
+        The same single-use grant and token response are checked. This outcome
+        cannot authenticate a caller or grant application permissions.
+        """
+        result = self._exchange_callback(
+            browser_binding=browser_binding,
+            state=state,
+            code=code,
+            response_issuer=response_issuer,
+            expected_role=_OBSERVED_ROLE,
+        )
+        if type(result) is not UntrustedCernRoleObservation:
+            raise OidcNativeExchangeError("OIDC native role observation was rejected")
+        return result
