@@ -257,7 +257,6 @@ class CernNativeOidcHostTransaction:
         listener can be interrupted from another thread during receive().
         """
         with self._lock:
-            binding, state = self._browser_binding, self._state
             self._browser_binding = None
             self._state = None
             self._closed = True
@@ -266,14 +265,11 @@ class CernNativeOidcHostTransaction:
             with suppress(OSError):
                 self._listener.close()
         finally:
-            if binding is not None and state is not None:
-                # Already consumed/expired attempts remain terminal.
-                with suppress(OidcNativeExchangeError, ValueError, TypeError):
-                    self._exchange.reject_callback(
-                        browser_binding=binding,
-                        state=state,
-                        error="access_denied",
-                    )
+            # Independent cancellation capability was recorded inside exchange
+            # before the authorization URL was inspected. Neither state nor
+            # browser_binding from an untrusted URL is required for revocation.
+            with suppress(OidcNativeExchangeError, ValueError, TypeError):
+                self._exchange.cancel_pending()
 
     def __enter__(self) -> Self:
         if self.closed:

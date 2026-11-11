@@ -15,6 +15,8 @@ import math
 import re
 import time
 from collections.abc import Callable
+from contextlib import suppress
+from threading import RLock
 
 from asca.application.identity import AuthorizationStart, OidcAuthorizationService
 from asca.application.oidc_client_preflight import build_cern_client_configuration
@@ -108,6 +110,8 @@ class CernOidcNativeCodeExchange:
         self._redirect_uri = config.redirect_uri
         self._clock = clock
         self._store = InMemoryAuthorizationAttemptStore(max_pending=max_pending)
+        self._cancel_lock = RLock()
+        self._pending_cancel_handles: set[str] = set()
         self._service = OidcAuthorizationService(
             config, self._store, clock=self._checked_clock, ttl_seconds=ttl_seconds
         )
@@ -129,11 +133,42 @@ class CernOidcNativeCodeExchange:
             raise OidcNativeExchangeError("Invalid OIDC verification clock") from None
 
     def begin(self) -> AuthorizationStart:
-        """Create local state, nonce and PKCE, without transmitting credentials."""
-        try:
-            return self._service.begin()
-        except (TypeError, ValueError, OverflowError):
-            raise OidcNativeExchangeError("OIDC authorization attempt was rejected") from None
+        """Create an attempt and record its independent opaque cancel capability."""
+        with self._cancel_lock:
+            try:
+                started = self._service.begin()
+                handle = started.cancellation_handle
+                if (
+                    type(started) is not AuthorizationStart
+                    or not isinstance(handle, str)
+                    or not handle
+                ):
+                    raise OidcNativeExchangeError("OIDC authorization attempt was rejected")
+                # Previous success, denial or expiry may have consumed handles.
+                # Reap stale references so repeated use stays bounded by max_pending.
+                self._pending_cancel_handles = {
+                    handle
+                    for handle in self._pending_cancel_handles
+                    if self._store.has_cancel_handle(handle)
+                }
+                self._pending_cancel_handles.add(handle)
+                return started
+            except (TypeError, ValueError, OverflowError, AttributeError):
+                raise OidcNativeExchangeError("OIDC authorization attempt was rejected") from None
+
+    def cancel_pending(self) -> None:
+        """Atomically revoke all attempts initiated by this exchange, without state.
+
+        The capabilities are private to this instance; no token POST occurs.
+        Repeated or concurrent cancellation cannot restore an attempt.
+        """
+        with self._cancel_lock:
+            handles = tuple(self._pending_cancel_handles)
+            self._pending_cancel_handles.clear()
+            for handle in handles:
+                # Already consumed or expired attempts remain terminal.
+                with suppress(AuthenticationFlowError):
+                    self._store.cancel(handle)
 
     @property
     def callback_registration(self) -> OidcClientRegistration:
