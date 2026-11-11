@@ -20,6 +20,7 @@ class PendingAuthorization:
     code_verifier: str = field(repr=False)
     created_at: float
     expires_at: float
+    cancellation_handle: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

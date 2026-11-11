@@ -87,6 +87,7 @@ class AuthorizationStart:
 
     authorization_url: str = field(repr=False)
     browser_binding: str = field(repr=False)
+    cancellation_handle: str | None = field(default=None, repr=False)
 
 
 class AuthorizationAttemptStore(Protocol):
@@ -95,6 +96,8 @@ class AuthorizationAttemptStore(Protocol):
     def save(self, attempt: PendingAuthorization, *, now: float) -> None: ...
 
     def consume(self, binding: str, state: str, *, now: float) -> PendingAuthorization: ...
+
+    def cancel(self, cancellation_handle: str) -> None: ...
 
 
 class OidcIdTokenVerifier(Protocol):
@@ -141,8 +144,18 @@ class OidcAuthorizationService:
             code_verifier=secrets.token_urlsafe(48),
             created_at=now,
             expires_at=now + self._ttl,
+            cancellation_handle=secrets.token_urlsafe(32),
         )
         self._store.save(attempt, now=now)
+        try:
+            return self._build_authorization_start(attempt)
+        except Exception:
+            # A saved attempt must not survive a failed authorization URL build.
+            self._store.cancel(attempt.cancellation_handle or "")
+            raise
+
+    def _build_authorization_start(self, attempt: PendingAuthorization) -> AuthorizationStart:
+        """Build a URL after save; always retain its independent cancel handle."""
         params = {
             "response_type": "code",
             "client_id": self._config.client_id,
@@ -156,6 +169,7 @@ class OidcAuthorizationService:
         return AuthorizationStart(
             authorization_url=f"{self._config.authorization_endpoint}?{urlencode(params)}",
             browser_binding=attempt.browser_binding,
+            cancellation_handle=attempt.cancellation_handle,
         )
 
     def finish(
