@@ -5,6 +5,7 @@ This is NOT suitable for multiworker or hosted login. Never store user tokens he
 
 import hashlib
 import hmac
+import math
 import re
 from threading import RLock
 
@@ -38,6 +39,19 @@ class InMemoryAuthorizationAttemptStore:
             raise AuthenticationFlowError("Invalid or expired authorization attempt")
         return hashlib.sha256(handle.encode("ascii")).hexdigest()
 
+    @staticmethod
+    def _validate_now(now: float) -> float:
+        """Reject invalid explicit clock readings before any store mutation."""
+        if type(now) not in (int, float):
+            raise AuthenticationFlowError("Invalid authorization time")
+        try:
+            checked = float(now)
+        except OverflowError:
+            raise AuthenticationFlowError("Invalid authorization time") from None
+        if not math.isfinite(checked):
+            raise AuthenticationFlowError("Invalid authorization time")
+        return checked
+
     def _remove(self, key: str) -> None:
         """Remove both the attempt and its independent revocation index."""
         self._pending.pop(key, None)
@@ -45,23 +59,32 @@ class InMemoryAuthorizationAttemptStore:
         if handle_key is not None:
             self._cancellations.pop(handle_key, None)
 
-    def cancel(self, cancellation_handle: str) -> None:
-        """Revoke once by an opaque, non-URL capability under the same lock.
+    def cancel(self, cancellation_handle: str, *, now: float | None = None) -> None:
+        """Revoke once by an opaque capability, optionally checking its TTL.
 
-        Cancellation and callback consumption compete for the same entry.
-        An invalid or consumed handle never cancels a different attempt.
+        A supplied clock reaps expired entries under the same atomic lock.
+        An omitted clock retains legacy best-effort revocation semantics.
         """
         handle_key = self._cancel_key(cancellation_handle)
+        checked_now = self._validate_now(now) if now is not None else None
         with self._lock:
+            if checked_now is not None:
+                self._purge_expired(checked_now)
             key = self._cancellations.get(handle_key)
             if key is None or key not in self._pending:
                 raise AuthenticationFlowError("Invalid or expired authorization attempt")
             self._remove(key)
 
-    def has_cancel_handle(self, cancellation_handle: str) -> bool:
-        """Check only the in-process revocation index, not identity authority."""
+    def has_cancel_handle(self, cancellation_handle: str, *, now: float | None = None) -> bool:
+        """Check an opaque index, optionally reaping expired attempts first.
+
+        Index presence alone is never proof of an authenticated identity.
+        """
         key = self._cancel_key(cancellation_handle)
+        checked_now = self._validate_now(now) if now is not None else None
         with self._lock:
+            if checked_now is not None:
+                self._purge_expired(checked_now)
             return key in self._cancellations
 
     def save(self, attempt: PendingAuthorization, *, now: float) -> None:

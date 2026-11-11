@@ -136,6 +136,8 @@ class CernOidcNativeCodeExchange:
         """Create an attempt and record its independent opaque cancel capability."""
         with self._cancel_lock:
             try:
+                # Validate the clock before saving a new authorization attempt.
+                sweep_time = self._checked_clock()
                 started = self._service.begin()
                 handle = started.cancellation_handle
                 if (
@@ -149,7 +151,7 @@ class CernOidcNativeCodeExchange:
                 self._pending_cancel_handles = {
                     handle
                     for handle in self._pending_cancel_handles
-                    if self._store.has_cancel_handle(handle)
+                    if self._store.has_cancel_handle(handle, now=sweep_time)
                 }
                 self._pending_cancel_handles.add(handle)
                 return started
