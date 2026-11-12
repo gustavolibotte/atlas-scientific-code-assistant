@@ -6,9 +6,11 @@ import base64
 import hashlib
 import json
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -17,16 +19,24 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi.testclient import TestClient
 
-from prototypes.cern_web_bff_lab import (
-    ATTEMPT_COOKIE,
-    ATTEMPT_TTL,
-    BASE_URL,
-    CALLBACK,
-    CLIENT_ID,
-    ISSUER,
-    create_lab_app,
-    verify_synthetic_token,
-)
+# Load the uninstalled lab by path. The isolated prototype is deliberately
+# outside the production package and must remain so in clean CI environments.
+LAB_FILE = Path(__file__).resolve().parents[2] / "prototypes/cern_web_bff_lab.py"
+LAB_SPEC = spec_from_file_location("asca_c7_mock_bff_lab", LAB_FILE)
+if LAB_SPEC is None or LAB_SPEC.loader is None:
+    raise ImportError("Isolated mock BFF lab is unavailable")
+lab = module_from_spec(LAB_SPEC)
+sys.modules[LAB_SPEC.name] = lab  # Required for dataclass introspection across Python versions.
+LAB_SPEC.loader.exec_module(lab)
+
+ATTEMPT_COOKIE = lab.ATTEMPT_COOKIE
+ATTEMPT_TTL = lab.ATTEMPT_TTL
+BASE_URL = lab.BASE_URL
+CALLBACK = lab.CALLBACK
+CLIENT_ID = lab.CLIENT_ID
+ISSUER = lab.ISSUER
+create_lab_app = lab.create_lab_app
+verify_synthetic_token = lab.verify_synthetic_token
 
 
 def client() -> TestClient:
