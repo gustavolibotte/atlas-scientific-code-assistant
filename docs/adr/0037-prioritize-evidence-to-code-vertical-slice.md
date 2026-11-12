@@ -1,6 +1,6 @@
 # ADR 0037: Prioritize the evidence-to-code vertical slice; freeze CERN web authorization work
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-12)
 - **Date:** 2026-11-12
 - **Supersedes:** The ordering of `docs/roadmap.md` v1 (Phase 1 before Phases 2–5)
 - **Does not supersede:** ADRs 0004–0036 remain valid for the identity code they describe

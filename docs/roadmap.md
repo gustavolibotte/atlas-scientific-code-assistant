@@ -1,6 +1,6 @@
 # Roadmap v2 — evidence-to-code first
 
-> Status: **proposed** in [ADR 0037](adr/0037-prioritize-evidence-to-code-vertical-slice.md).
+> Status: **accepted** in [ADR 0037](adr/0037-prioritize-evidence-to-code-vertical-slice.md).
 > Roadmap v1 (identity before knowledge) is preserved in Git history.
 
 ## Product goal
