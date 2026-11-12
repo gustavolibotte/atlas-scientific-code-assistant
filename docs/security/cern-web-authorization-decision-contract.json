@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "phase": "1A.2.5C5",
+  "purpose": "offline_authorization_decision_contract_review",
+  "runtime_authorization_enabled": false,
+  "source_of_authority": "no_repository_authority",
+  "design_decision_values": [
+    "DENY"
+  ],
+  "required_context_fields": [
+    "server_attested_subject",
+    "exact_registered_web_client",
+    "trusted_oidc_transaction",
+    "reviewed_role_state",
+    "provider_positive_assurance",
+    "server_session_state",
+    "requested_resource",
+    "requested_action",
+    "delegated_resource_authority",
+    "deployment_security_attestations"
+  ],
+  "required_decision_fields": [
+    "decision",
+    "reason_code",
+    "policy_revision",
+    "resource",
+    "action",
+    "correlation_id"
+  ],
+  "denial_reason_codes": [
+    "untrusted_identity",
+    "unregistered_client",
+    "invalid_transaction",
+    "missing_role",
+    "unverified_assurance",
+    "invalid_session",
+    "forbidden_resource",
+    "stale_operations",
+    "unreviewed_deployment",
+    "unknown_action"
+  ],
+  "stages": [
+    {
+      "id": "web_client_binding",
+      "gates": [
+        "G1",
+        "G2"
+      ],
+      "required_evidence": "Server-owned exact HTTPS web-client registration and browser binding",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "trusted_oidc_transaction",
+      "gates": [
+        "G3",
+        "G4"
+      ],
+      "required_evidence": "Cryptographic validation within an atomic single-use server transaction",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "application_scoped_role",
+      "gates": [
+        "G5"
+      ],
+      "required_evidence": "Active exact-client application role with reviewed provenance",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "positive_authentication_assurance",
+      "gates": [
+        "G6"
+      ],
+      "required_evidence": "Provider-approved positive MFA and LoA evidence with required freshness",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "active_server_session",
+      "gates": [
+        "G7"
+      ],
+      "required_evidence": "Bound non-revoked server session within idle and absolute expiry",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "resource_specific_permission",
+      "gates": [
+        "G8"
+      ],
+      "required_evidence": "Explicit resource action audience scope consent and permission",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "operational_freshness",
+      "gates": [
+        "G9"
+      ],
+      "required_evidence": "Active key revocation role refresh audit and incident controls",
+      "on_missing": "DENY"
+    },
+    {
+      "id": "independent_release_validation",
+      "gates": [
+        "G10"
+      ],
+      "required_evidence": "Independent security review and deployment-specific gate verification",
+      "on_missing": "DENY"
+    }
+  ],
+  "resource_boundaries": [
+    {
+      "id": "asca_workspace",
+      "required_rule": "Explicit ASCA action policy; no implicit entitlement from CERN role",
+      "state": "disabled"
+    },
+    {
+      "id": "chatlas_read",
+      "required_rule": "Independent chATLAS audience scope consent and resource-side authorization",
+      "state": "disabled"
+    },
+    {
+      "id": "cern_gitlab_read",
+      "required_rule": "Independent CERN GitLab audience scope consent and resource-side authorization",
+      "state": "disabled"
+    }
+  ],
+  "repository_gate_states": {
+    "G1": "not_attested",
+    "G6": "not_attested",
+    "G7": "not_implemented"
+  },
+  "prior_negative_cases_required": 20,
+  "result": "INDEPENDENT_REVIEW_REQUIRED_NO_GRANT"
+}
