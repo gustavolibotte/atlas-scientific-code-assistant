@@ -1,26 +1,30 @@
 """FastAPI composition root for the read-only foundation API."""
 
-from fastapi import FastAPI
+from typing import Annotated
+
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from asca import __version__
+from asca.api.dependencies import get_provenance_service, register_provenance_error_handlers
+from asca.api.legacy import legacy_trace_from_graph
 from asca.api.schemas import (
     CapabilitiesResponse,
     Capability,
     CapabilityState,
-    DecisionDTO,
-    EvidenceDTO,
     IdentityStatusResponse,
     LiveResponse,
     ReadyResponse,
-    SymbolDTO,
     TraceResponse,
-    VerificationDTO,
 )
-from asca.application.demo import create_synthetic_trace
+from asca.application.demo import DEMO_DECISION_ID, DEMO_PROJECT_ID, seed_synthetic_demo
+from asca.application.ports import Clock, IdFactory
+from asca.application.provenance import ProvenanceService
+from asca.infrastructure.memory_provenance import InMemoryProvenanceRepository
+from asca.infrastructure.system import SystemClock, Uuid4IdFactory
 
 
 async def add_security_headers(request: Request, call_next: object) -> Response:
@@ -37,8 +41,21 @@ async def add_security_headers(request: Request, call_next: object) -> Response:
     return response
 
 
-def create_app() -> FastAPI:
-    """Create a deterministic application without external side effects."""
+def create_app(
+    *,
+    seed_demo: bool = True,
+    clock: Clock | None = None,
+    ids: IdFactory | None = None,
+) -> FastAPI:
+    """Create a deterministic application without external side effects.
+
+    Interim composition: provenance lives in an in-memory repository. Everything is
+    built eagerly; no environment variable or file is read.
+    """
+    repository = InMemoryProvenanceRepository()
+    service = ProvenanceService(repository, clock or SystemClock(), ids or Uuid4IdFactory())
+    if seed_demo:
+        seed_synthetic_demo(repository)
     app = FastAPI(
         title="ATLAS Scientific Code Assistant",
         version=__version__,
@@ -52,6 +69,8 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type"],
     )
     app.add_middleware(BaseHTTPMiddleware, dispatch=add_security_headers)
+    app.state.provenance_service = service
+    register_provenance_error_handlers(app)
 
     @app.get("/api/v1/health/live", response_model=LiveResponse, tags=["health"])
     def live() -> LiveResponse:
@@ -107,23 +126,11 @@ def create_app() -> FastAPI:
         """Disclose that CERN login is not yet configured or available."""
         return IdentityStatusResponse()
 
-    @app.get("/api/v1/demo/trace", response_model=TraceResponse, tags=["demo"])
-    def demo_trace() -> TraceResponse:
-        trace = create_synthetic_trace()
-        return TraceResponse(
-            is_synthetic=trace.is_synthetic,
-            disclaimer="Synthetic UI demonstration; no CERN source, code, or test was consulted.",
-            decision=DecisionDTO.model_validate(trace.decision, from_attributes=True),
-            evidence=[
-                EvidenceDTO.model_validate(item, from_attributes=True) for item in trace.evidence
-            ],
-            symbols=[
-                SymbolDTO.model_validate(item, from_attributes=True) for item in trace.symbols
-            ],
-            verifications=[
-                VerificationDTO.model_validate(item, from_attributes=True)
-                for item in trace.verifications
-            ],
-        )
+    @app.get("/api/v1/demo/trace", response_model=TraceResponse, tags=["demo"], deprecated=True)
+    def demo_trace(
+        provenance: Annotated[ProvenanceService, Depends(get_provenance_service)],
+    ) -> TraceResponse:
+        """Legacy synthetic trace, served from the stored demonstration project."""
+        return legacy_trace_from_graph(provenance.load(DEMO_PROJECT_ID), DEMO_DECISION_ID)
 
     return app

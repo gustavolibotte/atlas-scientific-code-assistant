@@ -14,6 +14,8 @@ dependencies = [
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.6,<3",
     "uvicorn>=0.30,<1",
+    "sqlalchemy>=2.0.36,<2.1",
+    "alembic>=1.14,<2",
 ]
 
 [dependency-groups]
@@ -24,13 +26,22 @@ dev = [
     "hypothesis>=6.100,<7",
     "ruff>=0.9,<1",
     "mypy>=1.14,<2",
+    "jsonschema>=4.23,<5",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+asca = [
+    "contracts/exports/v1/*.json",
+    "contracts/exports/released.json",
+    "infrastructure/persistence/migrations/script.py.mako",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests/support"]
 addopts = "--strict-markers --strict-config"
 markers = ["unit: fast isolated unit tests", "contract: boundary and API contract tests", "architecture: dependency direction checks", "security: security-sensitive behavior tests"]
 

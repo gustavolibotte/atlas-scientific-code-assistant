@@ -5,7 +5,23 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from asca.domain.provenance import EvidenceAuthority, VerificationState
+
+class EvidenceAuthority(StrEnum):
+    """Legacy demo-trace source class, kept for the frozen ``/api/v1/demo/trace`` contract."""
+
+    PUBLISHED = "published"
+    DOCUMENTED = "documented"
+    IMPLEMENTATION = "implementation"
+    UNVERIFIED = "unverified"
+
+
+class VerificationState(StrEnum):
+    """Legacy demo-trace verification state, kept for the frozen contract."""
+
+    NOT_RUN = "not_run"
+    PASSED = "passed"
+    FAILED = "failed"
+    HUMAN_REVIEW_REQUIRED = "human_review_required"
 
 
 class StrictModel(BaseModel):
