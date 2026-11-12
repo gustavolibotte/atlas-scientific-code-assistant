@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "phase": "1A.2.5C4",
+  "purpose": "synthetic_negative_policy_requirements",
+  "authorization_enabled": false,
+  "review_state": "independent_review_required",
+  "cases": [
+    {
+      "id": "diagnostic_role_claimed",
+      "violation": "Native diagnostic promoted to web authorization",
+      "expected_decision": "DENY",
+      "gates": [
+        "G3",
+        "G5"
+      ]
+    },
+    {
+      "id": "forged_checked_token",
+      "violation": "Forged checked-token wrapper",
+      "expected_decision": "DENY",
+      "gates": [
+        "G3"
+      ]
+    },
+    {
+      "id": "mismatched_cern_issuer",
+      "violation": "Issuer not pinned to approved CERN provider",
+      "expected_decision": "DENY",
+      "gates": [
+        "G3"
+      ]
+    },
+    {
+      "id": "wrong_oidc_client",
+      "violation": "Token intended for a different OIDC client",
+      "expected_decision": "DENY",
+      "gates": [
+        "G1",
+        "G3"
+      ]
+    },
+    {
+      "id": "wrong_application_role_scope",
+      "violation": "Role belongs to a different client",
+      "expected_decision": "DENY",
+      "gates": [
+        "G5"
+      ]
+    },
+    {
+      "id": "missing_role",
+      "violation": "Required application role is absent",
+      "expected_decision": "DENY",
+      "gates": [
+        "G5"
+      ]
+    },
+    {
+      "id": "revoked_role",
+      "violation": "Application role was revoked",
+      "expected_decision": "DENY",
+      "gates": [
+        "G5",
+        "G9"
+      ]
+    },
+    {
+      "id": "stale_role",
+      "violation": "Application role has not been revalidated",
+      "expected_decision": "DENY",
+      "gates": [
+        "G5",
+        "G9"
+      ]
+    },
+    {
+      "id": "contradictory_role_claim",
+      "violation": "Role conflicts with denial or assurance hints",
+      "expected_decision": "DENY",
+      "gates": [
+        "G5",
+        "G6"
+      ]
+    },
+    {
+      "id": "missing_positive_assurance",
+      "violation": "No provider-approved MFA/LoA proof",
+      "expected_decision": "DENY",
+      "gates": [
+        "G6"
+      ]
+    },
+    {
+      "id": "expired_assurance",
+      "violation": "Authentication assurance is stale",
+      "expected_decision": "DENY",
+      "gates": [
+        "G6",
+        "G7"
+      ]
+    },
+    {
+      "id": "replayed_authorization_callback",
+      "violation": "Authorization callback was consumed before",
+      "expected_decision": "DENY",
+      "gates": [
+        "G2",
+        "G4"
+      ]
+    },
+    {
+      "id": "unbound_browser_callback",
+      "violation": "Callback does not match initiating browser",
+      "expected_decision": "DENY",
+      "gates": [
+        "G2",
+        "G4"
+      ]
+    },
+    {
+      "id": "expired_session",
+      "violation": "Server-side session exceeded expiration",
+      "expected_decision": "DENY",
+      "gates": [
+        "G7"
+      ]
+    },
+    {
+      "id": "revoked_session",
+      "violation": "Server-side session was revoked",
+      "expected_decision": "DENY",
+      "gates": [
+        "G7"
+      ]
+    },
+    {
+      "id": "wrong_resource_audience",
+      "violation": "Token audience does not match resource",
+      "expected_decision": "DENY",
+      "gates": [
+        "G8"
+      ]
+    },
+    {
+      "id": "missing_resource_scope",
+      "violation": "Resource token lacks required scope",
+      "expected_decision": "DENY",
+      "gates": [
+        "G8"
+      ]
+    },
+    {
+      "id": "unknown_protected_action",
+      "violation": "Protected action has no explicit allow rule",
+      "expected_decision": "DENY",
+      "gates": [
+        "G8"
+      ]
+    },
+    {
+      "id": "unreviewed_operator_intake",
+      "violation": "Opaque intake reference is not reviewed proof",
+      "expected_decision": "DENY",
+      "gates": [
+        "G1",
+        "G6",
+        "G7",
+        "G10"
+      ]
+    },
+    {
+      "id": "missing_deployment_gate",
+      "violation": "One or more independent release gates are unmet",
+      "expected_decision": "DENY",
+      "gates": [
+        "G1",
+        "G10"
+      ]
+    }
+  ]
+}
