@@ -13,7 +13,9 @@ import os
 import re
 import stat
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 from urllib.parse import parse_qsl
 
 import httpx
@@ -29,11 +31,13 @@ from fastapi.responses import (
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from asca.application.identity import OidcAuthorizationService, OidcClientConfiguration
+from asca.application.oidc_claims import _parse_claims
 from asca.application.oidc_discovery import (
     CERN_OIDC_ISSUER,
     OidcDiscoveryPolicy,
     validate_oidc_metadata,
 )
+from asca.application.oidc_role_claims import inspect_untrusted_cern_application_role
 from asca.application.oidc_token_response import parse_unverified_oidc_token_response
 from asca.domain.identity import AuthorizationCodeGrant
 from asca.domain.oidc_browser_cookie import (
@@ -42,6 +46,7 @@ from asca.domain.oidc_browser_cookie import (
     read_browser_binding_cookie,
 )
 from asca.domain.oidc_discovery import OidcProviderMetadata
+from asca.domain.oidc_role_claims import OidcRoleClaimsError
 from asca.domain.oidc_token_http import UnverifiedOidcTokenHttpResponse
 from asca.domain.oidc_verification import CheckedUntrustedCernOidcToken
 from asca.infrastructure.identity_memory import InMemoryAuthorizationAttemptStore
@@ -246,6 +251,147 @@ def exchange_confidential_code(grant: AuthorizationCodeGrant, client_id: str, se
         return bytes(body)
 
 
+@dataclass(frozen=True, slots=True)
+class CernWebClaimObservation:
+    """Diagnostic-only view; no subject, claims, tokens, grants, or sessions."""
+
+    checked: CheckedUntrustedCernOidcToken = field(repr=False)
+    role_status: Literal[
+        "CLAIMED", "ABSENT", "MFA_REQUIRED", "LOA_REQUIRED", "MFA_AND_LOA_REQUIRED"
+    ]
+    acr_claim: Literal["PRESENT", "ABSENT"]
+    amr_claim: Literal["PRESENT", "ABSENT", "EMPTY"]
+    auth_time_claim: Literal["PRESENT", "ABSENT"]
+
+
+def _assurance_claim_presence(payload: bytes, *, now: int) -> tuple[str, str, str]:
+    """Validate shapes, never infer assurance level/method semantics or freshness."""
+    claims = _parse_claims(payload)
+    acr = "ABSENT"
+    if "acr" in claims:
+        value = claims["acr"]
+        if type(value) is not str or re.fullmatch(r"[\x21-\x7e]{1,256}", value) is None:
+            raise ProbeError("OIDC assurance claim was rejected")
+        acr = "PRESENT"
+
+    amr = "ABSENT"
+    if "amr" in claims:
+        value = claims["amr"]
+        if (
+            type(value) is not list
+            or len(value) > 16
+            or any(
+                type(item) is not str or re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", item) is None
+                for item in value
+            )
+            or len(set(value)) != len(value)
+        ):
+            raise ProbeError("OIDC assurance claim was rejected")
+        amr = "PRESENT" if value else "EMPTY"
+
+    auth_time = "ABSENT"
+    if "auth_time" in claims:
+        value = claims["auth_time"]
+        if type(value) is not int or not 1 <= value < 2**53 or value > now + 60:
+            raise ProbeError("OIDC assurance claim was rejected")
+        auth_time = "PRESENT"
+    return acr, amr, auth_time
+
+
+class CernWebClaimObservationVerifier:
+    """One pinned JWKS check, then strictly scoped role and assurance observation.
+
+    This deliberately calls an internal verification method for the unmounted
+    experiment. It must not become a production authorization interface.
+    """
+
+    def __init__(self) -> None:
+        self._pipeline = CernOidcVerificationPipeline()
+
+    def check(
+        self,
+        tokens: object,
+        metadata: OidcProviderMetadata,
+        *,
+        expected_client_id: str,
+        expected_nonce: str,
+        now: int,
+    ) -> CernWebClaimObservation:
+        if expected_client_id != "asca-web-dev":
+            raise ProbeError("Only the registered web diagnostic client is permitted")
+        signed, claims = self._pipeline._verified_payload(
+            tokens,
+            metadata,
+            expected_client_id=expected_client_id,
+            expected_nonce=expected_nonce,
+            now=now,
+        )
+        try:
+            role = inspect_untrusted_cern_application_role(
+                signed,
+                expected_client_id=expected_client_id,
+                expected_nonce=expected_nonce,
+                expected_role="asca-developer",
+                now=now,
+                expected_access_token=tokens.access_token,
+            )
+            acr, amr, auth_time = _assurance_claim_presence(signed.payload, now=now)
+        except (OidcRoleClaimsError, ValueError, TypeError, AttributeError):
+            raise ProbeError("CERN claim observation was rejected") from None
+        statuses = {
+            "claimed": "CLAIMED",
+            "absent": "ABSENT",
+            "mfa_required": "MFA_REQUIRED",
+            "loa_required": "LOA_REQUIRED",
+            "mfa_and_loa_required": "MFA_AND_LOA_REQUIRED",
+        }
+        if role.status not in statuses:
+            raise ProbeError("Unexpected role observation")
+        checked = CheckedUntrustedCernOidcToken(
+            issuer=claims.issuer,
+            subject=claims.subject,
+            audiences=claims.audiences,
+            expires_at=claims.expires_at,
+            algorithm=claims.algorithm,
+            kid=claims.kid,
+            source_url=metadata.jwks_uri,
+        )
+        return CernWebClaimObservation(
+            checked=checked,
+            role_status=statuses[role.status],
+            acr_claim=acr,
+            amr_claim=amr,
+            auth_time_claim=auth_time,
+        )
+
+
+def _format_claim_observation(value: CernWebClaimObservation) -> str:
+    """Emit fixed categorical labels, not user identifiers or claim values."""
+    allowed_roles = {"CLAIMED", "ABSENT", "MFA_REQUIRED", "LOA_REQUIRED", "MFA_AND_LOA_REQUIRED"}
+    if (
+        type(value) is not CernWebClaimObservation
+        or value.role_status not in allowed_roles
+        or value.acr_claim not in {"PRESENT", "ABSENT"}
+        or value.amr_claim not in {"PRESENT", "ABSENT", "EMPTY"}
+        or value.auth_time_claim not in {"PRESENT", "ABSENT"}
+    ):
+        raise ProbeError("Unexpected claim observation")
+    return (
+        "\nROLE_STATUS="
+        + value.role_status
+        + "\nACR_CLAIM="
+        + value.acr_claim
+        + "\nAMR_CLAIM="
+        + value.amr_claim
+        + "\nAUTH_TIME_CLAIM="
+        + value.auth_time_claim
+        + "\nMFA_PROOF=INDETERMINATE"
+        + "\nLOA_PROOF=INDETERMINATE"
+        + "\nAUTH_FRESHNESS=INDETERMINATE"
+        + "\nROLE_AUTHORIZATION=DISABLED"
+    )
+
+
 def _generic_rejection() -> PlainTextResponse:
     result = PlainTextResponse(
         "CERN OIDC diagnostic rejected. No ASCA login or session was created.",
@@ -263,6 +409,7 @@ def create_probe_app(
     *,
     token_exchange: object | None = None,
     token_verifier: object | None = None,
+    observe_claims: bool = False,
 ) -> FastAPI:
     """Create an unmounted diagnostic. Injected adapters are ONLY for offline tests.
 
@@ -277,6 +424,8 @@ def create_probe_app(
         or _SECRET.fullmatch(client_secret) is None
     ):
         raise ProbeError("Invalid web-only CERN client configuration")
+    if type(observe_claims) is not bool or (observe_claims and client_id != "asca-web-dev"):
+        raise ProbeError("Invalid web claim-observation configuration")
     metadata = _validate_metadata(metadata)
     config = OidcClientConfiguration(
         issuer=CERN_OIDC_ISSUER,
@@ -287,7 +436,13 @@ def create_probe_app(
     )
     attempts = InMemoryAuthorizationAttemptStore(max_pending=64)
     auth = OidcAuthorizationService(config, attempts, ttl_seconds=ATTEMPT_TTL_SECONDS)
-    verifier = token_verifier if token_verifier is not None else CernOidcVerificationPipeline()
+    verifier = (
+        token_verifier
+        if token_verifier is not None
+        else (
+            CernWebClaimObservationVerifier() if observe_claims else CernOidcVerificationPipeline()
+        )
+    )
     exchange = token_exchange if token_exchange is not None else exchange_confidential_code
     app = FastAPI(title="ASCA isolated CERN OIDC diagnostic", docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost"])
@@ -360,6 +515,11 @@ def create_probe_app(
                 expected_nonce=grant.nonce,
                 now=int(time.time()),
             )
+            observation = checked if observe_claims else None
+            if observe_claims:
+                if type(observation) is not CernWebClaimObservation:
+                    raise ProbeError("Claim observation was rejected")
+                checked = observation.checked
             if (
                 not isinstance(checked, CheckedUntrustedCernOidcToken)
                 or checked.issuer != CERN_OIDC_ISSUER
@@ -371,9 +531,14 @@ def create_probe_app(
         except Exception:
             # Never echo remote error details, URL codes, ID tokens, claims or exception text.
             return _generic_rejection()
-        response = PlainTextResponse(
+        message = (
             "CERN OIDC token signature and claims checks completed. "
-            "DIAGNOSTIC ONLY: no ASCA identity, session, role grant or access was created.",
+            "DIAGNOSTIC ONLY: no ASCA identity, session, role grant or access was created."
+        )
+        if observe_claims:
+            message += _format_claim_observation(observation)
+        response = PlainTextResponse(
+            message,
             status_code=200,
             headers=HEADERS,
         )
@@ -390,10 +555,17 @@ def main() -> int:
     mode.add_argument("--init-secret", action="store_true")
     mode.add_argument("--serve", action="store_true")
     parser.add_argument("--client-id", help="Client ID shown in the CERN SSO registration")
+    parser.add_argument(
+        "--observe-claims",
+        action="store_true",
+        help="Categorical role/assurance diagnostic only",
+    )
     parser.add_argument("--certfile", type=Path)
     parser.add_argument("--keyfile", type=Path)
     args = parser.parse_args()
     try:
+        if args.observe_claims and not args.serve:
+            raise ProbeError("Claim observation only supported for --serve")
         if args.init_secret:
             provision_secret()
             return 0
@@ -408,7 +580,9 @@ def main() -> int:
             raise ProbeError("Missing BFF development parameters")
         if not args.certfile.is_file() or not args.keyfile.is_file():
             raise ProbeError("Local development TLS files are unavailable")
-        app = create_probe_app(args.client_id, _safe_secret_file(), metadata)
+        app = create_probe_app(
+            args.client_id, _safe_secret_file(), metadata, observe_claims=args.observe_claims
+        )
     except (ProbeError, OSError, ValueError, TypeError):
         print("RESULT=WEB_PROBE_NOT_READY")
         return 2
@@ -417,6 +591,8 @@ def main() -> int:
     print("ASCA_LOGIN=DISABLED")
     print("ASCA_SESSION=DISABLED")
     print("ROLE_AUTHORIZATION=DISABLED")
+    if args.observe_claims:
+        print("CLAIM_OBSERVATION=ENABLED_NON_AUTHORITATIVE")
     # Never allow externally supplied proxy headers or access logs with auth codes.
     uvicorn.run(
         app,
