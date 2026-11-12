@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "phase": "1A.2.5C6",
+  "purpose": "offline_implementation_readiness_traceability",
+  "production_implementation_approved": false,
+  "live_evidence_attested": false,
+  "runtime_login_enabled": false,
+  "runtime_authorization_enabled": false,
+  "ready_for_deployment": false,
+  "source_of_authority": "no_repository_authority",
+  "resource_boundaries": [
+    "asca_workspace",
+    "chatlas_read",
+    "cern_gitlab_read"
+  ],
+  "contract_stage_count": 8,
+  "c4_negative_cases": 20,
+  "work_items": [
+    {
+      "gate": "G1",
+      "snapshot_state": "not_attested",
+      "evidence_owner_role": "application_owner",
+      "external_proof_required": "Confirm distinct CERN web client registration, ownership, HTTPS callback, grants and scopes.",
+      "offline_preparation": "Specify exact-client BFF configuration and negative callback fixtures.",
+      "verification_methods": [
+        "offline_unit",
+        "provider_review",
+        "deployment_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G2",
+      "snapshot_state": "not_implemented",
+      "evidence_owner_role": "security_architect",
+      "external_proof_required": "Approve HTTPS BFF and reverse-proxy boundary with protected browser binding.",
+      "offline_preparation": "Design state, PKCE, CSRF, proxy trust and browser-binding test harness.",
+      "verification_methods": [
+        "offline_unit",
+        "security_integration",
+        "deployment_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G3",
+      "snapshot_state": "diagnostic_only",
+      "evidence_owner_role": "security_engineer",
+      "external_proof_required": "Prove trusted server-owned issuer, client, JWS, nonce and code-exchange composition.",
+      "offline_preparation": "Prepare negative verification and wrong-client test scenarios.",
+      "verification_methods": [
+        "offline_unit",
+        "security_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G4",
+      "snapshot_state": "not_implemented",
+      "evidence_owner_role": "security_engineer",
+      "external_proof_required": "Approve and test shared atomic replay-resistant transaction storage.",
+      "offline_preparation": "Specify concurrency, consume-once, cancellation and crash-recovery tests.",
+      "verification_methods": [
+        "offline_unit",
+        "multiworker_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G5",
+      "snapshot_state": "diagnostic_only",
+      "evidence_owner_role": "application_owner",
+      "external_proof_required": "Confirm exact-client scoped role semantics, revocation and revalidation.",
+      "offline_preparation": "Specify strict role parsing and stale, forged and contradictory-role tests.",
+      "verification_methods": [
+        "offline_unit",
+        "provider_review",
+        "security_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G6",
+      "snapshot_state": "not_attested",
+      "evidence_owner_role": "provider_and_security_reviewer",
+      "external_proof_required": "Obtain provider-authoritative positive MFA/LoA semantics and freshness contract.",
+      "offline_preparation": "Prepare assurance denial matrix without inferring positive claims.",
+      "verification_methods": [
+        "offline_unit",
+        "provider_review",
+        "security_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G7",
+      "snapshot_state": "not_implemented",
+      "evidence_owner_role": "security_architect",
+      "external_proof_required": "Approve distributed server session store, TTL, cookies, CSRF and revocation.",
+      "offline_preparation": "Specify expiry, fixation, rotation, logout and multiworker invalidation tests.",
+      "verification_methods": [
+        "offline_unit",
+        "security_integration",
+        "multiworker_integration"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G8",
+      "snapshot_state": "not_attested",
+      "evidence_owner_role": "resource_owner",
+      "external_proof_required": "Verify resource-specific audience, scope, consent and permission contracts.",
+      "offline_preparation": "Specify per-action ASCA, chATLAS and GitLab denial scenarios.",
+      "verification_methods": [
+        "offline_unit",
+        "resource_integration",
+        "resource_owner_review"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G9",
+      "snapshot_state": "not_implemented",
+      "evidence_owner_role": "operations_owner",
+      "external_proof_required": "Approve secret and key lifecycle, monitoring, rate limits and incident response.",
+      "offline_preparation": "Specify operational failure and emergency-revocation test plan.",
+      "verification_methods": [
+        "offline_unit",
+        "deployment_integration",
+        "incident_exercise"
+      ],
+      "readiness": "blocked"
+    },
+    {
+      "gate": "G10",
+      "snapshot_state": "partial_offline",
+      "evidence_owner_role": "independent_security_reviewer",
+      "external_proof_required": "Approve complete G1-G10 evidence, live controls and deployment security review.",
+      "offline_preparation": "Build traceable CI and adversarial release-check matrix.",
+      "verification_methods": [
+        "offline_unit",
+        "security_integration",
+        "deployment_e2e",
+        "independent_review"
+      ],
+      "readiness": "blocked"
+    }
+  ],
+  "result": "IMPLEMENTATION_REVIEW_REQUIRED_NO_GRANT"
+}
