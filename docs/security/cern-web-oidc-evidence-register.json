@@ -1,0 +1,150 @@
+{
+  "phase": "1A.2.5C2",
+  "as_of": "2026-11-11",
+  "review_kind": "design_only",
+  "web_client_registered": false,
+  "positive_assurance_attested": false,
+  "production_sessions_enabled": false,
+  "asca_authorization_enabled": false,
+  "chatlas_access_enabled": false,
+  "sources": [
+    {
+      "id": "cern_sso_registration_snapshot",
+      "kind": "saved_public_document_snapshot",
+      "uri": "https://auth.docs.cern.ch/applications/sso-registration/",
+      "snapshot_date": "2026-11-11",
+      "supports": "client-registration-form-only"
+    },
+    {
+      "id": "cern_oidc_config_snapshot",
+      "kind": "saved_public_document_snapshot",
+      "uri": "https://auth.docs.cern.ch/user-documentation/oidc/config/",
+      "snapshot_date": "2026-11-11",
+      "supports": "documented-claims-and-logout-only"
+    },
+    {
+      "id": "cern_application_configuration_snapshot",
+      "kind": "saved_public_document_snapshot",
+      "uri": "https://auth.docs.cern.ch/applications/application-configuration/",
+      "snapshot_date": "2026-11-11",
+      "supports": "registration-workflow-only"
+    },
+    {
+      "id": "cern_caimira_example",
+      "kind": "published_example",
+      "uri": "https://caimira.docs.cern.ch/root/deployment/",
+      "snapshot_date": null,
+      "supports": "other-application-example-only"
+    },
+    {
+      "id": "oauth_security_bcp",
+      "kind": "standard",
+      "uri": "https://www.rfc-editor.org/rfc/rfc9700",
+      "snapshot_date": null,
+      "supports": "oauth-security-requirements"
+    },
+    {
+      "id": "oidc_core",
+      "kind": "standard",
+      "uri": "https://openid.net/specs/openid-connect-core-1_0.html",
+      "snapshot_date": null,
+      "supports": "oidc-protocol-requirements"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "topic": "web_client_registration",
+      "state": "not_attested",
+      "references": [
+        "cern_sso_registration_snapshot",
+        "cern_application_configuration_snapshot"
+      ],
+      "required_proof": "Operator-reviewed separate CERN web client registration, exact HTTPS callback, client type, scopes and owner"
+    },
+    {
+      "id": "G2",
+      "topic": "server_owned_bff",
+      "state": "not_implemented",
+      "references": [
+        "oauth_security_bcp",
+        "cern_caimira_example"
+      ],
+      "required_proof": "Reviewed HTTPS BFF and proxy boundary, server-held client credentials and browser binding"
+    },
+    {
+      "id": "G3",
+      "topic": "trusted_token_provenance",
+      "state": "diagnostic_only",
+      "references": [
+        "oidc_core",
+        "oauth_security_bcp"
+      ],
+      "required_proof": "Server-owned exact-client cryptographic token verification composition"
+    },
+    {
+      "id": "G4",
+      "topic": "distributed_replay_resistance",
+      "state": "not_implemented",
+      "references": [
+        "oauth_security_bcp"
+      ],
+      "required_proof": "Atomic cross-worker consumed state and replay/revocation tests"
+    },
+    {
+      "id": "G5",
+      "topic": "application_scoped_role_policy",
+      "state": "diagnostic_only",
+      "references": [
+        "cern_oidc_config_snapshot"
+      ],
+      "required_proof": "Provider-reviewed scoped role meaning and decision within authenticated web transaction"
+    },
+    {
+      "id": "G6",
+      "topic": "positive_mfa_loa_assurance",
+      "state": "not_attested",
+      "references": [
+        "cern_oidc_config_snapshot"
+      ],
+      "required_proof": "Official CERN assurance semantics, positive attestation or explicit trusted role-policy guarantee and freshness"
+    },
+    {
+      "id": "G7",
+      "topic": "session_security",
+      "state": "not_implemented",
+      "references": [
+        "oidc_core",
+        "cern_oidc_config_snapshot"
+      ],
+      "required_proof": "Distributed session lifecycle, secure cookies, CSRF, TTL, logout, rotation and revocation"
+    },
+    {
+      "id": "G8",
+      "topic": "delegated_resource_authorization",
+      "state": "not_attested",
+      "references": [
+        "oauth_security_bcp"
+      ],
+      "required_proof": "Per-resource audience scopes and permission checks for external services"
+    },
+    {
+      "id": "G9",
+      "topic": "operations_and_incident_controls",
+      "state": "not_implemented",
+      "references": [
+        "oauth_security_bcp"
+      ],
+      "required_proof": "Approved secret, key and audit lifecycle, rate limits and incident playbook"
+    },
+    {
+      "id": "G10",
+      "topic": "security_validation",
+      "state": "partial_offline",
+      "references": [
+        "oauth_security_bcp"
+      ],
+      "required_proof": "Negative integration and deployment review covering all approved controls"
+    }
+  ]
+}
