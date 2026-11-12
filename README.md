@@ -60,6 +60,7 @@ Failed or skipped checks must not be interpreted as successful checks.
 
 ## Documentation
 
+- [Roadmap v2](docs/roadmap.md) and [ADR 0037](docs/adr/0037-prioritize-evidence-to-code-vertical-slice.md)
 - [Architecture](docs/architecture/overview.md)
 - [Security](docs/security/security-model.md)
 - [Testing](docs/development/testing.md)
