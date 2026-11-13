@@ -347,7 +347,7 @@ def evidence_chains(draw: st.DrawFn, is_synthetic: bool) -> tuple[Command, ...]:
     add a checked contradicting claim and a review, so supported, conflicting, approved
     and rejected decisions are generated. It comes first, so its records are index 0.
     """
-    shape = draw(st.sampled_from(["none", "supported", "conflicting"]))
+    shape = draw(st.sampled_from(["none", "supported", "conflicting", "conflicting"]))
     if shape == "none":
         return ()
     scheme = PidScheme.SYNTHETIC if is_synthetic else draw(_REAL_SCHEMES)
@@ -372,9 +372,21 @@ def evidence_chains(draw: st.DrawFn, is_synthetic: bool) -> tuple[Command, ...]:
             CheckClaim(1, True),
             LinkEvidence(0, 1, Stance.CONTRADICTS, False),
         ]
-    verdict = draw(st.sampled_from([None, ApprovalVerdict.APPROVED, ApprovalVerdict.REJECTED]))
-    if verdict is not None:
-        chain.append(Review(0, verdict, draw(st.booleans())))
+    if is_synthetic:
+        # A synthetic project cannot record approvals (G.synthetic.approvals).
+        return tuple(chain)
+    verdict = draw(
+        st.sampled_from(
+            [None, ApprovalVerdict.APPROVED, ApprovalVerdict.APPROVED, ApprovalVerdict.REJECTED]
+        )
+    )
+    if verdict is ApprovalVerdict.APPROVED:
+        # Approving a conflict needs a resolution (T.approval.conflict_resolution);
+        # unresolved approvals still come from the random tail.
+        chain.append(Review(0, verdict, shape == "conflicting" or draw(st.booleans())))
+    elif verdict is ApprovalVerdict.REJECTED:
+        # A rejection cannot carry a resolution (R.approval.resolution).
+        chain.append(Review(0, verdict, False))
     return tuple(chain)
 
 

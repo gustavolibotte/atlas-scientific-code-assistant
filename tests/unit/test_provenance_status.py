@@ -362,6 +362,10 @@ def _links_to(graph: ProvenanceGraph, claim: Claim, stances: list[Stance]) -> li
 
 
 _REACH_SETTINGS = settings(max_examples=300, database=None, deadline=None, phases=(Phase.generate,))
+# An approved conflict needs a non-synthetic graph, a conflicting chain, an approval and a
+# tail that leaves both checked claims intact. ``find`` stops at the first hit (typically
+# within 100 examples), so the larger budget only removes the rare unlucky run.
+_RARE_REACH_SETTINGS = settings(_REACH_SETTINGS, max_examples=2000)
 
 
 @pytest.mark.parametrize(
@@ -394,7 +398,7 @@ def test_valid_graphs_reach_an_approved_conflict_with_a_resolution() -> None:
             is DecisionStatus.CONFLICTING
             for approval in graph.approvals
         ),
-        settings=_REACH_SETTINGS,
+        settings=_RARE_REACH_SETTINGS,
     )
     assert_status_sound(graph)
 
