@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -10,7 +10,9 @@ from starlette.responses import Response
 
 from asca import __version__
 from asca.api.dependencies import get_provenance_service, register_provenance_error_handlers
+from asca.api.export_routes import build_export_router
 from asca.api.legacy import legacy_trace_from_graph
+from asca.api.provenance_routes import build_provenance_router
 from asca.api.schemas import (
     CapabilitiesResponse,
     Capability,
@@ -39,6 +41,16 @@ async def add_security_headers(request: Request, call_next: object) -> Response:
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _mount_routes(app: FastAPI, router: APIRouter) -> None:
+    """Add a router's routes to the app as plain ``APIRoute`` entries.
+
+    ``include_router`` in current FastAPI wraps an included router in one lazy route
+    object, which would hide its operations from route-allowlist checks that enumerate
+    ``app.routes``. Mounting the route objects directly keeps every operation visible.
+    """
+    app.router.routes.extend(router.routes)
 
 
 def create_app(
@@ -99,6 +111,11 @@ def create_app(
                     status=CapabilityState.DEMO_ONLY,
                 ),
                 Capability(
+                    id="provenance_store",
+                    label="Persisted provenance store and exports",
+                    status=CapabilityState.AVAILABLE,
+                ),
+                Capability(
                     id="cern_sso",
                     label="CERN single sign-on",
                     status=CapabilityState.NOT_IMPLEMENTED,
@@ -133,4 +150,6 @@ def create_app(
         """Legacy synthetic trace, served from the stored demonstration project."""
         return legacy_trace_from_graph(provenance.load(DEMO_PROJECT_ID), DEMO_DECISION_ID)
 
+    _mount_routes(app, build_provenance_router())
+    _mount_routes(app, build_export_router())
     return app
