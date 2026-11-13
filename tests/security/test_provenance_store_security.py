@@ -161,6 +161,113 @@ def test_project_revision_may_advance_but_projects_cannot_be_deleted(
     assert _count(store, "projects") == 1
 
 
+# ---------------------------------------------------------------------- symbol index columns
+
+FINGERPRINT = "c" * 64
+
+
+def _insert_symbol(
+    store: SqliteProvenanceStore,
+    ids: CompleteProject,
+    *,
+    name: str,
+    fingerprint: str | None,
+    algorithm: str | None,
+) -> None:
+    _execute(
+        store,
+        "INSERT INTO code_symbols (id, project_id, added_in_revision, revision_id, language, "
+        "kind, qualified_name, file_path, span_start, span_end, fingerprint, "
+        "fingerprint_algorithm) VALUES (:id, :pid, 1, :rev, 'python', 'function', :name, "
+        "'src/reco/injected.py', NULL, NULL, :fp, :algorithm)",
+        id="sym_" + name.encode().hex().ljust(32, "0"),
+        pid=ids.project,
+        rev=ids.revision1,
+        name=name,
+        fp=fingerprint,
+        algorithm=algorithm,
+    )
+
+
+def _insert_revision(
+    store: SqliteProvenanceStore, ids: CompleteProject, *, indexed: bool, digest: str | None
+) -> None:
+    _execute(
+        store,
+        "INSERT INTO workspace_revisions (id, project_id, added_in_revision, sequence, vcs_ref, "
+        "symbols_indexed, recorded_at, source_digest) VALUES (:id, :pid, 1, 99, NULL, "
+        ":indexed, '2026-11-12 00:00:00.000000', :digest)",
+        id="rev_" + "e" * 32,
+        pid=ids.project,
+        indexed=indexed,
+        digest=digest,
+    )
+
+
+@pytest.mark.parametrize(
+    ("fingerprint", "algorithm", "constraint"),
+    [
+        pytest.param(None, "python-ast/1", "fingerprint_algorithm_pair", id="no-fingerprint"),
+        pytest.param(FINGERPRINT, "python-ast/0", "fingerprint_algorithm", id="unknown-id"),
+        pytest.param(FINGERPRINT, "PYTHON_AST_1", "fingerprint_algorithm", id="member-name"),
+        pytest.param(FINGERPRINT, "", "fingerprint_algorithm", id="empty"),
+    ],
+)
+def test_check_constraints_reject_bad_fingerprint_algorithms(
+    fresh: tuple[SqliteProvenanceStore, CompleteProject],
+    fingerprint: str | None,
+    algorithm: str,
+    constraint: str,
+) -> None:
+    store, ids = fresh
+    before = _count(store, "code_symbols")
+    with pytest.raises(
+        sa.exc.IntegrityError, match=rf"CHECK constraint failed: ck_code_symbols_{constraint}\b"
+    ):
+        _insert_symbol(store, ids, name="injected", fingerprint=fingerprint, algorithm=algorithm)
+    assert _count(store, "code_symbols") == before
+    _insert_symbol(store, ids, name="accepted", fingerprint=FINGERPRINT, algorithm="python-ast/1")
+    _insert_symbol(store, ids, name="legacy", fingerprint=FINGERPRINT, algorithm=None)
+    assert _count(store, "code_symbols") == before + 2
+
+
+def test_check_constraint_rejects_a_source_digest_on_an_unindexed_revision(
+    fresh: tuple[SqliteProvenanceStore, CompleteProject],
+) -> None:
+    store, ids = fresh
+    before = _count(store, "workspace_revisions")
+    with pytest.raises(
+        sa.exc.IntegrityError,
+        match=r"CHECK constraint failed: ck_workspace_revisions_source_digest",
+    ):
+        _insert_revision(store, ids, indexed=False, digest=FINGERPRINT)
+    assert _count(store, "workspace_revisions") == before
+    _insert_revision(store, ids, indexed=True, digest=FINGERPRINT)
+    assert _count(store, "workspace_revisions") == before + 1
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "UPDATE workspace_revisions SET file_issues = '[]'",
+        'UPDATE workspace_revisions SET file_issues = \'[{"file_path": "src/x.py", '
+        '"kind": "binary"}]\' WHERE symbols_indexed = 1',
+        "UPDATE workspace_revisions SET source_digest = NULL",
+        "UPDATE code_symbols SET fingerprint_algorithm = NULL",
+        "UPDATE code_symbols SET fingerprint_algorithm = 'python-ast/1' "
+        "WHERE fingerprint IS NOT NULL",
+    ],
+)
+def test_symbol_index_columns_are_append_only(
+    populated: tuple[SqliteProvenanceStore, CompleteProject], sql: str
+) -> None:
+    store, ids = populated
+    reference = store.repository.load(ids.project)
+    with pytest.raises(sa.exc.DBAPIError, match="append-only"):
+        _execute(store, sql)
+    assert store.repository.load(ids.project) == reference
+
+
 # ---------------------------------------------------------------------- tamper detection
 
 

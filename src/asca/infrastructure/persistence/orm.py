@@ -17,6 +17,7 @@ from asca.domain.provenance import (
     AssertionOrigin,
     CheckMethod,
     ClaimCheckOutcome,
+    FingerprintAlgorithm,
     Language,
     PidScheme,
     RunOrigin,
@@ -196,6 +197,7 @@ class WorkspaceRevisionRow(RecordColumns, Base):
     __table_args__ = _record_args(
         sa.UniqueConstraint("project_id", "sequence"),
         sa.CheckConstraint("sequence >= 1", name="sequence"),
+        sa.CheckConstraint("source_digest IS NULL OR symbols_indexed = 1", name="source_digest"),
     )
 
     id: Mapped[str] = mapped_column(ID, primary_key=True)
@@ -203,6 +205,8 @@ class WorkspaceRevisionRow(RecordColumns, Base):
     vcs_ref: Mapped[str | None] = mapped_column(sa.String(100))
     symbols_indexed: Mapped[bool] = mapped_column(sa.Boolean)
     recorded_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    source_digest: Mapped[str | None] = mapped_column(SHA, nullable=True)
+    file_issues: Mapped[JsonList] = mapped_column(sa.JSON, server_default=sa.text("'[]'"))
 
 
 class CodeSymbolRow(RecordColumns, Base):
@@ -213,6 +217,10 @@ class CodeSymbolRow(RecordColumns, Base):
             "(span_start IS NULL AND span_end IS NULL) OR "
             "(span_start >= 1 AND span_end >= span_start)",
             name="span",
+        ),
+        sa.CheckConstraint(
+            "fingerprint_algorithm IS NULL OR fingerprint IS NOT NULL",
+            name="fingerprint_algorithm_pair",
         ),
         sa.Index(None, "project_id", "language", "file_path", "qualified_name"),
     )
@@ -226,6 +234,9 @@ class CodeSymbolRow(RecordColumns, Base):
     span_start: Mapped[int | None] = mapped_column(sa.Integer)
     span_end: Mapped[int | None] = mapped_column(sa.Integer)
     fingerprint: Mapped[str | None] = mapped_column(SHA)
+    fingerprint_algorithm: Mapped[FingerprintAlgorithm | None] = mapped_column(
+        enum_column(FingerprintAlgorithm, "fingerprint_algorithm"), nullable=True
+    )
 
 
 class ImplementationLinkRow(RecordColumns, Base):

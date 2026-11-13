@@ -35,6 +35,9 @@ from asca.domain.provenance import (
     Claim,
     ClaimId,
     DecisionId,
+    FileIssue,
+    FileIssueKind,
+    FingerprintAlgorithm,
     IdKind,
     Language,
     Locator,
@@ -186,8 +189,18 @@ class LinkEvidence:
 
 @dataclass(frozen=True)
 class RecordRevision:
+    """A revision of ``(name, file, fingerprint)`` symbols.
+
+    ``with_algorithm`` stamps every fingerprinted symbol with an algorithm id. For an
+    indexed revision, ``issues`` and ``digest`` add file issues (only on files without
+    symbols in this revision) and a source digest; an unindexed revision ignores them.
+    """
+
     indexed: bool
     symbols: tuple[tuple[int, int, int | None], ...]
+    with_algorithm: bool = False
+    issues: tuple[tuple[int, FileIssueKind], ...] = ()
+    digest: int | None = None
 
 
 @dataclass(frozen=True)
@@ -257,6 +270,8 @@ _REAL_SCHEMES = st.sampled_from(
 )
 _SYMBOL_NAMES = ("estimate", "subtract_pedestal", "Fitter.fit", "calibrate")
 _SYMBOL_FILES = ("src/reco/a.py", "src/reco/b.py")
+#: Issue files include the symbol files, so a file can stop parsing after it had symbols.
+_ISSUE_FILES = (*_SYMBOL_FILES, "src/reco/broken.py")
 
 
 def _command_kinds(is_synthetic: bool) -> list[st.SearchStrategy[Command]]:
@@ -319,6 +334,12 @@ def _command_kinds(is_synthetic: bool) -> list[st.SearchStrategy[Command]]:
                 ),
                 max_size=4,
             ).map(tuple),
+            st.booleans(),
+            st.lists(
+                st.tuples(st.integers(0, len(_ISSUE_FILES) - 1), st.sampled_from(FileIssueKind)),
+                max_size=2,
+            ).map(tuple),
+            st.one_of(st.none(), st.integers(1, 4)),
         ),
         st.builds(LinkImplementation, _REF, _REF),
         st.builds(RegisterTest, small, st.sampled_from(TestKind)),
@@ -568,6 +589,13 @@ def _apply(command: Command, service: ProvenanceService, state: ReplayResult) ->
             asserted_by=AssertionOrigin.AUTOMATED if command.automated else AssertionOrigin.HUMAN,
         )
     elif isinstance(command, RecordRevision):
+        algorithm = FingerprintAlgorithm.PYTHON_AST_1 if command.with_algorithm else None
+        symbol_files = {_SYMBOL_FILES[path] for _, path, _ in command.symbols}
+        issues = {
+            _ISSUE_FILES[path]: FileIssue(_ISSUE_FILES[path], kind)
+            for path, kind in command.issues
+            if _ISSUE_FILES[path] not in symbol_files
+        }
         recorded = service.record_workspace_revision(
             pid,
             vcs_ref=None,
@@ -579,10 +607,15 @@ def _apply(command: Command, service: ProvenanceService, state: ReplayResult) ->
                     _SYMBOL_FILES[path],
                     None,
                     None if fp is None else f"{fp:064x}",
+                    None if fp is None else algorithm,
                 )
                 for name, path, fp in command.symbols
             ],
             symbols_indexed=command.indexed,
+            file_issues=tuple(issues.values()) if command.indexed else (),
+            source_digest=(
+                None if command.digest is None or not command.indexed else f"{command.digest:064x}"
+            ),
         )
         state.revisions.append(recorded.revision_id)
         state.symbols.extend(recorded.symbol_ids)

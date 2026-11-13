@@ -24,6 +24,8 @@ from asca.domain.provenance import (
     EnvironmentSnapshot,
     EvidenceLink,
     EvidenceLinkId,
+    FileIssue,
+    FileIssueKind,
     ImplementationLink,
     ImplementationLinkId,
     Locator,
@@ -261,6 +263,11 @@ def record_to_rows(record: ProvenanceRecord, added_in_revision: int) -> list[Bas
                     vcs_ref=record.vcs_ref,
                     symbols_indexed=record.symbols_indexed,
                     recorded_at=record.recorded_at,
+                    source_digest=record.source_digest,
+                    file_issues=[
+                        {"file_path": item.file_path, "kind": item.kind.value}
+                        for item in record.file_issues
+                    ],
                     **common,
                 )
             ]
@@ -276,6 +283,7 @@ def record_to_rows(record: ProvenanceRecord, added_in_revision: int) -> list[Bas
                     span_start=None if record.span is None else record.span.start_line,
                     span_end=None if record.span is None else record.span.end_line,
                     fingerprint=record.fingerprint,
+                    fingerprint_algorithm=record.fingerprint_algorithm,
                     **common,
                 )
             ]
@@ -402,6 +410,24 @@ def _packages(items: Any) -> tuple[PackagePin, ...]:
     if not isinstance(items, list):
         raise TypeError("packages must be a list")
     return tuple(PackagePin(item["name"], item["version"]) for item in items)
+
+
+_FILE_ISSUE_KEYS = frozenset({"file_path", "kind"})
+
+
+def _file_issues(items: Any) -> tuple[FileIssue, ...]:
+    """Stored file issues; anything but ``[{"file_path": str, "kind": str}, ...]`` fails."""
+    if not isinstance(items, list):
+        raise TypeError("file_issues must be a list")
+    issues: list[FileIssue] = []
+    for item in items:
+        if not isinstance(item, dict) or item.keys() != _FILE_ISSUE_KEYS:
+            raise TypeError("a file issue must have exactly file_path and kind")
+        file_path, kind = item["file_path"], item["kind"]
+        if not isinstance(file_path, str) or not isinstance(kind, str):
+            raise TypeError("file issue fields must be strings")
+        issues.append(FileIssue(file_path, FileIssueKind(kind)))
+    return tuple(issues)
 
 
 def _span(start: int | None, end: int | None) -> SourceSpan | None:
@@ -539,6 +565,8 @@ def rows_to_graph(project_row: ProjectRow, rows: LoadedRows) -> ProvenanceGraph:
                 vcs_ref=row.vcs_ref,
                 symbols_indexed=row.symbols_indexed,
                 recorded_at=row.recorded_at,
+                file_issues=_file_issues(row.file_issues),
+                source_digest=row.source_digest,
             )
             for row in rows.revisions
         ),
@@ -553,6 +581,7 @@ def rows_to_graph(project_row: ProjectRow, rows: LoadedRows) -> ProvenanceGraph:
                 file_path=row.file_path,
                 span=_span(row.span_start, row.span_end),
                 fingerprint=row.fingerprint,
+                fingerprint_algorithm=row.fingerprint_algorithm,
             )
             for row in rows.symbols
         ),

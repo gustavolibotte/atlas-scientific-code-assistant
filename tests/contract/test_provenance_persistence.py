@@ -29,20 +29,29 @@ from asca.application.errors import (
     StoredGraphIntegrityError,
 )
 from asca.application.ports import ProjectSummary
+from asca.application.provenance import ProvenanceService, SymbolDraft
 from asca.domain.provenance import (
     AccessClass,
+    FileIssue,
+    FileIssueKind,
+    FingerprintAlgorithm,
+    Language,
     PersistentIdentifier,
     PidScheme,
     Project,
     ProjectId,
     ProvenanceGraph,
+    ProvenanceInvariantError,
     ProvenanceRecord,
+    RevisionId,
     Source,
     SourceAuthority,
     SourceId,
     SourceVersion,
     SourceVersionId,
+    SymbolKind,
     ValidationRun,
+    WorkspaceRevision,
 )
 from asca.infrastructure.memory_provenance import InMemoryProvenanceRepository
 from asca.infrastructure.persistence import (
@@ -154,6 +163,266 @@ def test_seeded_demo_loads_identically_from_sqlite_and_memory(
     assert any(alternatives for alternatives, _ in details)
     justifications = {item.justification for _, items in details for item in items}
     assert None in justifications and len(justifications) > 1
+
+
+# ---------------------------------------------------------------------- symbol index fields
+
+INDEX_DIGEST = "d" * 64
+
+
+@dataclass(frozen=True)
+class IndexedProject:
+    project: ProjectId
+    indexed: RevisionId
+    unindexed: RevisionId
+
+
+def _record_index_revisions(service: ProvenanceService) -> IndexedProject:
+    """An indexed revision with file issues, a digest and fingerprinted symbols (with and
+    without an algorithm), then an unindexed revision."""
+    project = service.create_project("Symbol index fixture", is_synthetic=False)
+    algorithm = FingerprintAlgorithm.PYTHON_AST_1
+    indexed = service.record_workspace_revision(
+        project,
+        vcs_ref="fixture-ref",
+        symbols=[
+            SymbolDraft(
+                Language.PYTHON,
+                SymbolKind.MODULE,
+                "__module__",
+                "src/reco/a.py",
+                None,
+                "1" * 64,
+                algorithm,
+            ),
+            SymbolDraft(
+                Language.PYTHON,
+                SymbolKind.FUNCTION,
+                "estimate",
+                "src/reco/a.py",
+                None,
+                "2" * 64,
+                algorithm,
+            ),
+            SymbolDraft(
+                Language.PYTHON, SymbolKind.FUNCTION, "legacy", "src/reco/a.py", None, "3" * 64
+            ),
+            SymbolDraft(Language.PYTHON, SymbolKind.FUNCTION, "unhashed", "src/reco/a.py"),
+        ],
+        symbols_indexed=True,
+        file_issues=(
+            FileIssue("src/reco/z_binary.py", FileIssueKind.BINARY),
+            FileIssue("src/reco/broken.py", FileIssueKind.SYNTAX_ERROR),
+        ),
+        source_digest=INDEX_DIGEST,
+    )
+    unindexed = service.record_workspace_revision(
+        project, vcs_ref=None, symbols=[], symbols_indexed=False
+    )
+    return IndexedProject(project, indexed.revision_id, unindexed.revision_id)
+
+
+def test_symbol_index_fields_round_trip_through_sqlite_and_memory(tmp_path: Path) -> None:
+    url = _file_url(tmp_path / "index.db")
+    store = open_sqlite_store(url)
+    ids = _record_index_revisions(make_service(store.repository))
+    store.dispose()
+    reopened = open_sqlite_store(url)
+    try:
+        stored = reopened.repository.load(ids.project)
+    finally:
+        reopened.dispose()
+
+    memory_service = make_service()
+    assert _record_index_revisions(memory_service) == ids
+    assert stored == memory_service.load(ids.project)
+    revision = stored.get(WorkspaceRevision, ids.indexed)
+    assert revision.source_digest == INDEX_DIGEST
+    assert revision.file_issues == (
+        FileIssue("src/reco/broken.py", FileIssueKind.SYNTAX_ERROR),
+        FileIssue("src/reco/z_binary.py", FileIssueKind.BINARY),
+    )
+    algorithms = {symbol.qualified_name: symbol.fingerprint_algorithm for symbol in stored.symbols}
+    assert algorithms == {
+        "__module__": FingerprintAlgorithm.PYTHON_AST_1,
+        "estimate": FingerprintAlgorithm.PYTHON_AST_1,
+        "legacy": None,
+        "unhashed": None,
+    }
+    assert all(type(value) is not str for value in algorithms.values())
+    unindexed = stored.get(WorkspaceRevision, ids.unindexed)
+    assert unindexed.file_issues == () and unindexed.source_digest is None
+
+
+def test_file_issues_are_stored_as_a_json_list_of_path_and_kind(
+    memory_store: SqliteProvenanceStore,
+) -> None:
+    ids = _record_index_revisions(make_service(memory_store.repository))
+    with memory_store.engine.connect() as conn:
+        stored = dict(
+            conn.exec_driver_sql("SELECT id, file_issues FROM workspace_revisions").tuples().all()
+        )
+    assert stored == {
+        ids.indexed: '[{"file_path": "src/reco/broken.py", "kind": "syntax_error"}, '
+        '{"file_path": "src/reco/z_binary.py", "kind": "binary"}]',
+        ids.unindexed: "[]",
+    }
+
+
+def _tamper(store: SqliteProvenanceStore, sql: str, **params: object) -> None:
+    """Run ``sql`` with the append-only triggers dropped and CHECKs ignored."""
+    with store.engine.begin() as conn:
+        for name in list(
+            conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type = 'trigger'").scalars()
+        ):
+            conn.exec_driver_sql(f"DROP TRIGGER {name}")
+        conn.exec_driver_sql("PRAGMA ignore_check_constraints = ON")
+    try:
+        with store.engine.begin() as conn:
+            conn.execute(sa.text(sql), params)
+    finally:
+        with store.engine.begin() as conn:
+            conn.exec_driver_sql("PRAGMA ignore_check_constraints = OFF")
+
+
+_ISSUE = '{"file_path": "src/reco/broken.py", "kind": "syntax_error"}'
+
+
+@pytest.mark.parametrize(
+    ("issues", "cause_type", "rule"),
+    [
+        pytest.param(
+            '[{"file_path": "src/reco/broken.py", "kind": "syntax_error", "line": 3}]',
+            TypeError,
+            None,
+            id="extra-key",
+        ),
+        pytest.param('[{"file_path": "src/reco/broken.py"}]', TypeError, None, id="missing-key"),
+        pytest.param(
+            '[{"file_path": "src/reco/broken.py", "kind": "exploded"}]',
+            ValueError,
+            None,
+            id="unknown-kind",
+        ),
+        pytest.param(
+            '[{"file_path": "src/reco/broken.py", "kind": "SYNTAX_ERROR"}]',
+            ValueError,
+            None,
+            id="kind-by-member-name",
+        ),
+        pytest.param(
+            _ISSUE.replace("{", "[", 1).replace("}", "]"), ValueError, None, id="bad-json"
+        ),
+        pytest.param(f'{{"issues": [{_ISSUE}]}}', TypeError, None, id="object-not-list"),
+        pytest.param("null", TypeError, None, id="null"),
+        pytest.param('"[]"', TypeError, None, id="string-not-list"),
+        pytest.param('["src/reco/broken.py"]', TypeError, None, id="item-not-object"),
+        pytest.param(
+            '[{"file_path": 7, "kind": "syntax_error"}]', TypeError, None, id="non-str-path"
+        ),
+        pytest.param(
+            '[{"file_path": "src/reco/broken.py", "kind": ["binary"]}]',
+            TypeError,
+            None,
+            id="non-str-kind",
+        ),
+        pytest.param(
+            '[{"file_path": "src/reco/z.py", "kind": "binary"}, ' + _ISSUE + "]",
+            ProvenanceInvariantError,
+            "R.revision.file_issues",
+            id="unsorted",
+        ),
+        pytest.param(
+            f"[{_ISSUE}, {_ISSUE}]", ProvenanceInvariantError, "R.revision.file_issues", id="dup"
+        ),
+        pytest.param(
+            '[{"file_path": "/etc/passwd", "kind": "binary"}]',
+            ProvenanceInvariantError,
+            None,
+            id="absolute-path",
+        ),
+        pytest.param(
+            '[{"file_path": "src/reco/a.py", "kind": "binary"}]',
+            ProvenanceInvariantError,
+            "G.symbol.issue_file",
+            id="issue-on-a-file-with-symbols",
+        ),
+    ],
+)
+def test_tampered_file_issues_fail_the_load(
+    memory_store: SqliteProvenanceStore,
+    issues: str,
+    cause_type: type[BaseException],
+    rule: str | None,
+) -> None:
+    ids = _record_index_revisions(make_service(memory_store.repository))
+    _tamper(
+        memory_store,
+        "UPDATE workspace_revisions SET file_issues = :issues WHERE id = :rid",
+        issues=issues,
+        rid=ids.indexed,
+    )
+    with pytest.raises(StoredGraphIntegrityError) as caught:
+        memory_store.repository.load(ids.project)
+    assert str(caught.value) == "stored provenance failed integrity validation"
+    assert isinstance(caught.value.__cause__, cause_type)
+    if rule is not None:
+        assert isinstance(caught.value.__cause__, ProvenanceInvariantError)
+        assert caught.value.__cause__.rule == rule
+
+
+@pytest.mark.parametrize(
+    ("sql", "cause_type", "rule"),
+    [
+        pytest.param(
+            f"UPDATE workspace_revisions SET file_issues = '[{_ISSUE}]' WHERE id = :unindexed",
+            ProvenanceInvariantError,
+            "R.revision.unindexed",
+            id="issues-on-an-unindexed-revision",
+        ),
+        pytest.param(
+            f"UPDATE workspace_revisions SET source_digest = '{INDEX_DIGEST}' "
+            "WHERE id = :unindexed",
+            ProvenanceInvariantError,
+            "R.revision.unindexed",
+            id="digest-on-an-unindexed-revision",
+        ),
+        pytest.param(
+            "UPDATE workspace_revisions SET source_digest = 'not-a-digest' WHERE id = :indexed",
+            ProvenanceInvariantError,
+            None,
+            id="malformed-digest",
+        ),
+        pytest.param(
+            "UPDATE code_symbols SET fingerprint_algorithm = 'python-ast/0' "
+            "WHERE qualified_name = 'estimate'",
+            LookupError,
+            None,
+            id="unknown-algorithm",
+        ),
+        pytest.param(
+            "UPDATE code_symbols SET fingerprint_algorithm = 'python-ast/1' "
+            "WHERE qualified_name = 'unhashed'",
+            ProvenanceInvariantError,
+            "R.symbol.fingerprint_algorithm",
+            id="algorithm-without-fingerprint",
+        ),
+    ],
+)
+def test_tampered_symbol_index_columns_fail_the_load(
+    memory_store: SqliteProvenanceStore,
+    sql: str,
+    cause_type: type[BaseException],
+    rule: str | None,
+) -> None:
+    ids = _record_index_revisions(make_service(memory_store.repository))
+    _tamper(memory_store, sql, indexed=ids.indexed, unindexed=ids.unindexed)
+    with pytest.raises(StoredGraphIntegrityError) as caught:
+        memory_store.repository.load(ids.project)
+    assert isinstance(caught.value.__cause__, cause_type)
+    if rule is not None:
+        assert isinstance(caught.value.__cause__, ProvenanceInvariantError)
+        assert caught.value.__cause__.rule == rule
 
 
 # ---------------------------------------------------------------------- engine and types
