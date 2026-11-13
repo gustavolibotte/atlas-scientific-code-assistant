@@ -50,6 +50,28 @@ The demonstration project is synthetic, is not science-backed and labels itself 
 official ATLAS endorsement is inferred. See
 [ADR-0038](../adr/0038-persisted-provenance-graph-and-export-contracts.md).
 
+## Code symbol index and link lineage (M2)
+
+`asca.infrastructure.indexing` turns a workspace into one symbol-indexed revision:
+
+- `filesystem.FilesystemWorkspaceReader` implements the `WorkspaceReader` port. It walks
+  one local tree with fd-relative, no-follow, non-blocking opens, enforces the
+  `IndexLimits` and fails closed; POSIX only.
+- `python_symbols.PythonAstExtractor` implements the `SymbolExtractor` port: module,
+  class, function and method symbols with spans, decoded with its own encoding
+  allowlist. `python_fingerprint` computes the `python-ast/1` fingerprints. Both are pure
+  standard-library modules that never execute, import or compile indexed code.
+- `__main__` is a read-only preview CLI (`python -m asca.infrastructure.indexing ROOT`)
+  that prints one JSON line and touches no database.
+
+`IndexingService` (`asca.application.indexing`) is the only writer of indexed revisions;
+there is no HTTP trigger. The domain stores opaque `(algorithm, sha256)` fingerprints
+and per-revision file issues, and `SymbolLineage` (`asca.domain.provenance.lineage`)
+derives link freshness by following each symbol across revisions: `current`, `stale`,
+`moved`, `orphaned`, or `unknown` when its file could not be parsed. The inspector and
+the GET routes expose the lineage additively; the v1 export schemas are unchanged. See
+[ADR-0039](../adr/0039-python-symbol-index-and-link-lineage.md).
+
 ## Planned integrations
 
 - CERN SSO: OIDC via registered application, no browser token scraping.

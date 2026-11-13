@@ -18,6 +18,24 @@
     `provenance_store` capability;
   - `/api/v1/demo/trace` keeps its contract, is served from the stored synthetic project
     and is marked deprecated.
+- M2 code symbol index and link staleness (ADR 0039):
+  - fingerprint algorithm `python-ast/1`: a canonical serializer over a pinned AST field
+    table, insensitive to formatting, comments and docstrings, and identical on Python
+    3.11, 3.12 and 3.13;
+  - `PythonAstExtractor` (module, class, function and method symbols with spans; its own
+    encoding allowlist; never executes, imports or compiles indexed code) and a bounded,
+    fd-relative `FilesystemWorkspaceReader` that never follows symlinks, never blocks and
+    fails closed on every limit;
+  - `IndexingService`, the only writer of indexed revisions, and a read-only preview
+    CLI, `python -m asca.infrastructure.indexing ROOT`; there is no HTTP trigger;
+  - link freshness by symbol lineage across revisions: an edited body is `stale`, a
+    rename or file move without a body change is `moved`, a removed symbol is
+    `orphaned`, and an unparseable or unreadable file is `unknown`, never `orphaned`;
+  - migration `0002` adds `code_symbols.fingerprint_algorithm`,
+    `workspace_revisions.source_digest` and `workspace_revisions.file_issues`;
+  - additive API fields: freshness reason, linked, current and last-seen symbol
+    locations, relocation candidates, file issues and a link-health list. The v1 export
+    schemas and goldens are unchanged.
 
 ## 0.1.0 — Foundation (Phase 0)
 

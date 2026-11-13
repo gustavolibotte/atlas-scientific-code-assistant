@@ -39,6 +39,11 @@ ignored by Git). Only `sqlite+pysqlite:///` URLs are supported, for example
 `ASCA_DATABASE_URL=sqlite+pysqlite:///:memory:` for a throwaway run. The schema is migrated on
 startup. Keep the API on `127.0.0.1`: it has no authentication.
 
+To preview the Python symbol index of a directory without writing anything, run
+`uv run python -m asca.infrastructure.indexing PATH`. It prints one JSON line with
+workspace-relative paths, qualified names, spans and fingerprints, never source text, and
+never imports or executes the indexed code.
+
 ## Start the UI
 
 In a **second terminal**:
