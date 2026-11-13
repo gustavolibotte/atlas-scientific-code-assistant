@@ -23,7 +23,7 @@ from asca.application.exports import (
     canonical_json,
     format_utc,
 )
-from asca.application.provenance import SourceDraft, VersionDraft
+from asca.application.provenance import EnvironmentDraft, RunDraft, SourceDraft, VersionDraft
 from asca.domain.provenance import (
     POLICY_NOTE,
     RECORD_FIELDS,
@@ -33,7 +33,11 @@ from asca.domain.provenance import (
     PersistentIdentifier,
     PidScheme,
     ProvenanceGraph,
+    RunOrigin,
     SourceAuthority,
+    TestKind,
+    TestOutcome,
+    TestResult,
 )
 from asca.infrastructure.memory_provenance import InMemoryProvenanceRepository
 
@@ -308,6 +312,7 @@ def test_withheld_kinds_cover_exactly_the_access_controlled_records() -> None:
         "source_version",
         "claim",
         "decision",
+        "test_case",
     ]
 
 
@@ -363,7 +368,7 @@ def test_complete_project_decision_records() -> None:
 
 def test_complete_project_validation_report() -> None:
     graph, names = _complete_graph()
-    report = _export(graph, ExportArtifact.VALIDATION_REPORT, AccessClass.PUBLIC)
+    report = _export(graph, ExportArtifact.VALIDATION_REPORT, AccessClass.RESTRICTED)
     assert report["withheld"] == []
     assert [item["id"] for item in report["environments"]] == [names.environment]
     assert [item["name"] for item in report["environments"][0]["packages"]] == [
@@ -496,3 +501,32 @@ def test_every_referenced_id_resolves_or_is_withheld(audience: AccessClass) -> N
     _assert_references_resolve(_demo_graph(), audience)
     graph, _ = _complete_graph()
     _assert_references_resolve(graph, audience)
+
+
+def test_synthetic_runs_count_as_not_run_in_the_summary() -> None:
+    service = make_service()
+    pid = service.create_project("Synthetic run fixture", is_synthetic=True)
+    test = service.register_test_case(
+        pid, node_id="tests/test_demo.py::test_demo", kind=TestKind.UNIT, description="Demo."
+    )
+    revision = service.record_workspace_revision(
+        pid, vcs_ref=None, symbols=(), symbols_indexed=False
+    )
+    moment = datetime(2026, 11, 12, tzinfo=UTC)
+    service.record_validation_run(
+        pid,
+        RunDraft(
+            revision_id=revision.revision_id,
+            environment=EnvironmentDraft("3.12.0", "CPython", "linux", ()),
+            origin=RunOrigin.SYNTHETIC,
+            started_at=moment,
+            finished_at=moment,
+            results=(TestResult(test, TestOutcome.PASSED, None, None),),
+        ),
+    )
+    report = _export(service.load(pid), ExportArtifact.VALIDATION_REPORT, AccessClass.PUBLIC)
+    outcomes = report["summary"]["latest_outcomes"]
+    assert outcomes["passed"] == 0
+    assert outcomes["not_run"] == 1
+    [case] = report["test_cases"]
+    assert case["latest"]["origin"] == "synthetic"

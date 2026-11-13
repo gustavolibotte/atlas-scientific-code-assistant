@@ -106,6 +106,17 @@ not be performed is recorded as `unavailable` with a reason.
   Withheld sources, versions, claims and decisions are removed **whole** and listed in a
   `withheld` array (`kind`, `id`, `access_class`). Decision text follows the decision's
   effective class, so internal evidence cannot leak through a decision's statement.
+- Free text written about a protected record follows that record, even when it is
+  stored on a sibling record:
+  - a test case inherits the most restrictive `effective_access_class` of the decisions
+    it verifies; it is withheld whole from `validation_report` (`kind: test_case`) and
+    its results (including failure messages) are removed from every run;
+  - a supersession notice's `reason` is replaced by a fixed placeholder when the
+    audience may not see the superseding version; the opaque version id remains.
+- A test whose latest run is synthetic counts as `not_run` in the report summary, as in
+  the inspector and legacy trace: a synthetic run is not an execution.
+- Request validation errors (HTTP 422) report only `loc` and `type`, never the rejected
+  value, so malformed ids or audiences are not reflected back.
 - In local single-user mode the inspection API returns every access class. The route
   carries `# M10: filter by viewer before any non-loopback deployment`.
 
@@ -149,8 +160,9 @@ project-scoped and content-addressed: the hashed content includes the `project_i
   `additionalProperties: false` at every level and self-contained `$defs`.
 - Every enum in a schema equals its domain `StrEnum` (tested).
 - `contracts/exports/released.json` holds the sha256 of each released schema file. v1 is
-  frozen: **any** change to the set of accepted instances requires a new `v2/` directory
-  and a new URN. Description-only edits bump the patch of `schema_version` and update
+  frozen once the M1 pull request merges: **any** later change to the set of accepted
+  instances requires a new `v2/` directory and a new URN. (Before that merge, the review
+  amended v1 to add the `test_case` withheld kind; no v1 document had been published.) Description-only edits bump the patch of `schema_version` and update
   the lock with reviewer sign-off.
 - Exports carry no timestamp. They are a pure function of
   `(graph, artifact, audience, generator_version)`, serialized as canonical JSON

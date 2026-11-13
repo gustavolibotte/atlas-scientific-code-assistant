@@ -34,7 +34,7 @@
         "additionalProperties": false,
         "required": ["kind", "id", "access_class"],
         "properties": {
-          "kind": {"allOf": [{"$ref": "#/$defs/withheld_kind"}, {"not": {"const": "decision"}}]},
+          "kind": {"allOf": [{"$ref": "#/$defs/withheld_kind"}, {"not": {"anyOf": [{"const": "decision"}, {"const": "test_case"}]}}]},
           "id": {"$ref": "#/$defs/id"},
           "access_class": {"allOf": [{"$ref": "#/$defs/access_class"}, {"not": {"const": "public"}}]}
         }
@@ -65,7 +65,7 @@
     "utc": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
     "date": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
     "access_class": {"type": "string", "enum": ["public", "internal", "restricted"]},
-    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision"]},
+    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision", "test_case"]},
     "generator": {
       "type": "object",
       "additionalProperties": false,

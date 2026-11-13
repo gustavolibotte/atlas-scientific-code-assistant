@@ -22,6 +22,7 @@ from asca.domain.provenance import (
     CodeSymbol,
     EnvironmentSnapshot,
     ProvenanceGraph,
+    RunOrigin,
     ScientificDecision,
     Source,
     SourceVersion,
@@ -55,6 +56,12 @@ class WithheldKind(StrEnum):
     SOURCE_VERSION = "source_version"
     CLAIM = "claim"
     DECISION = "decision"
+    TEST_CASE = "test_case"
+
+
+WITHHELD_SUPERSESSION_REASON = (
+    "Reason withheld: the superseding version is not available to this audience."
+)
 
 
 def format_utc(value: datetime) -> str:
@@ -116,11 +123,26 @@ def _envelope(
 # ---------------------------------------------------------------------- evidence manifest
 
 
+def _notice_reason(
+    graph: ProvenanceGraph,
+    superseding_version_id: str | None,
+    reason: str,
+    audience: AccessClass,
+) -> str:
+    """Free text about a superseding version follows that version's access class."""
+    if superseding_version_id is None:
+        return reason
+    superseding = graph.get(SourceVersion, superseding_version_id)
+    return reason if audience.permits(superseding.access_class) else WITHHELD_SUPERSESSION_REASON
+
+
 def _least_restrictive(classes: Iterable[AccessClass]) -> AccessClass:
     return min(classes, key=lambda item: item.rank, default=AccessClass.PUBLIC)
 
 
-def _version_document(graph: ProvenanceGraph, version: SourceVersion) -> Document:
+def _version_document(
+    graph: ProvenanceGraph, version: SourceVersion, audience: AccessClass
+) -> Document:
     notices = sorted(graph.notices_for(version.id), key=lambda item: (item.recorded_at, item.id))
     return {
         "id": version.id,
@@ -142,7 +164,9 @@ def _version_document(graph: ProvenanceGraph, version: SourceVersion) -> Documen
             {
                 "dimension": notice.dimension.value,
                 "version_id": notice.superseding_version_id,
-                "reason": notice.reason,
+                "reason": _notice_reason(
+                    graph, notice.superseding_version_id, notice.reason, audience
+                ),
                 "recorded_at": format_utc(notice.recorded_at),
             }
             for notice in notices
@@ -151,7 +175,10 @@ def _version_document(graph: ProvenanceGraph, version: SourceVersion) -> Documen
 
 
 def _source_document(
-    graph: ProvenanceGraph, source: Source, versions: Iterable[SourceVersion]
+    graph: ProvenanceGraph,
+    source: Source,
+    versions: Iterable[SourceVersion],
+    audience: AccessClass,
 ) -> Document:
     ordered = sorted(versions, key=lambda item: (item.recorded_at, item.id))
     return {
@@ -162,7 +189,7 @@ def _source_document(
             "value": source.persistent_id.value,
         },
         "is_synthetic": source.is_synthetic,
-        "versions": [_version_document(graph, version) for version in ordered],
+        "versions": [_version_document(graph, version, audience) for version in ordered],
     }
 
 
@@ -210,7 +237,7 @@ def _evidence_manifest(
         if not audience.permits(source_class):
             withheld.append(_withheld(WithheldKind.SOURCE, source.id, source_class))
             continue
-        sources.append(_source_document(graph, source, permitted))
+        sources.append(_source_document(graph, source, permitted, audience))
     claims: list[Document] = []
     for claim in sorted(graph.claims, key=lambda item: (item.recorded_at, item.id)):
         version = graph.get(SourceVersion, claim.source_version_id)
@@ -352,6 +379,24 @@ def _environment_document(environment: EnvironmentSnapshot) -> Document:
     }
 
 
+def _test_case_access_class(graph: ProvenanceGraph, test: TestCase) -> AccessClass:
+    """A test inherits the most restrictive class of the decisions it verifies."""
+    classes = [
+        derive_status(graph, link.decision_id).effective_access_class
+        for link in graph.verification_links
+        if link.test_case_id == test.id and link.decision_id is not None
+    ]
+    return max(classes, key=lambda item: item.rank, default=AccessClass.PUBLIC)
+
+
+def _latest_outcome_key(graph: ProvenanceGraph, test: TestCase) -> str:
+    """A synthetic run is not an execution, so its test counts as not run."""
+    latest = latest_result(graph, test.id)
+    if latest is None or latest[0].origin is RunOrigin.SYNTHETIC:
+        return NOT_RUN
+    return latest[1].outcome.value
+
+
 def _test_case_document(graph: ProvenanceGraph, test: TestCase) -> Document:
     links = [link for link in graph.verification_links if link.test_case_id == test.id]
     latest = latest_result(graph, test.id)
@@ -379,8 +424,9 @@ def _test_case_document(graph: ProvenanceGraph, test: TestCase) -> Document:
     }
 
 
-def _run_document(graph: ProvenanceGraph, run: ValidationRun) -> Document:
+def _run_document(graph: ProvenanceGraph, run: ValidationRun, hidden: frozenset[str]) -> Document:
     revision = graph.get(WorkspaceRevision, run.revision_id)
+    results = [result for result in run.results if result.test_case_id not in hidden]
     return {
         "id": run.id,
         "origin": run.origin.value,
@@ -390,7 +436,7 @@ def _run_document(graph: ProvenanceGraph, run: ValidationRun) -> Document:
         "environment_id": run.environment_id,
         "started_at": format_utc(run.started_at),
         "finished_at": format_utc(run.finished_at),
-        "summary": _outcome_counts(result.outcome for result in run.results),
+        "summary": _outcome_counts(result.outcome for result in results),
         "results": [
             {
                 "test_case_id": result.test_case_id,
@@ -398,7 +444,7 @@ def _run_document(graph: ProvenanceGraph, run: ValidationRun) -> Document:
                 "duration_seconds": result.duration_seconds,
                 "message": result.message,
             }
-            for result in run.results
+            for result in results
         ],
     }
 
@@ -406,25 +452,32 @@ def _run_document(graph: ProvenanceGraph, run: ValidationRun) -> Document:
 def _validation_report(
     graph: ProvenanceGraph, audience: AccessClass
 ) -> tuple[Document, list[Document]]:
-    tests = sorted(graph.test_cases, key=lambda item: item.node_id)
+    withheld: list[Document] = []
+    tests: list[TestCase] = []
+    for test in sorted(graph.test_cases, key=lambda item: item.node_id):
+        access_class = _test_case_access_class(graph, test)
+        if audience.permits(access_class):
+            tests.append(test)
+        else:
+            withheld.append(_withheld(WithheldKind.TEST_CASE, test.id, access_class))
+    hidden = frozenset(str(item["id"]) for item in withheld)
     latest_outcomes: dict[str, int] = {**_outcome_counts(()), NOT_RUN: 0}
     for test in tests:
-        latest = latest_result(graph, test.id)
-        latest_outcomes[NOT_RUN if latest is None else latest[1].outcome.value] += 1
+        latest_outcomes[_latest_outcome_key(graph, test)] += 1
     body: Document = {
         "environments": [_environment_document(item) for item in graph.environments],
         "test_cases": [_test_case_document(graph, test) for test in tests],
         "runs": [
-            _run_document(graph, run)
+            _run_document(graph, run, hidden)
             for run in sorted(graph.runs, key=lambda item: (item.finished_at, item.id))
         ],
         "summary": {
-            "test_case_count": len(graph.test_cases),
+            "test_case_count": len(tests),
             "run_count": len(graph.runs),
             "latest_outcomes": latest_outcomes,
         },
     }
-    return body, []
+    return body, withheld
 
 
 _BUILDERS: dict[

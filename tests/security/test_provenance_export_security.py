@@ -5,14 +5,27 @@ occurrence in the exported bytes is a leak.
 """
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from provenance_builders import make_service
 
-from asca.application.exports import ExportArtifact, build_export, canonical_json
-from asca.application.provenance import DecisionDraft, ProvenanceService, SourceDraft, VersionDraft
+from asca.application.exports import (
+    WITHHELD_SUPERSESSION_REASON,
+    ExportArtifact,
+    build_export,
+    canonical_json,
+)
+from asca.application.provenance import (
+    DecisionDraft,
+    EnvironmentDraft,
+    ProvenanceService,
+    RunDraft,
+    SourceDraft,
+    VersionDraft,
+)
 from asca.domain.provenance import (
     AccessClass,
     ApprovalVerdict,
@@ -26,8 +39,13 @@ from asca.domain.provenance import (
     PidScheme,
     ProjectId,
     ProvenanceGraph,
+    RunOrigin,
     SourceAuthority,
     Stance,
+    SupersessionDimension,
+    TestKind,
+    TestOutcome,
+    TestResult,
     derive_status,
 )
 
@@ -182,6 +200,40 @@ def _build(
         ),
     )
     service.link_evidence(pid, floor_restricted, public_claim, Stance.SUPPORTS)
+    # Free text written about restricted records in sibling records must follow them:
+    # a supersession reason naming the restricted successor of a public version, and a
+    # test (description, node id, failure message) that verifies the restricted decision.
+    service.record_supersession(
+        pid,
+        superseded=public_version,
+        superseding=restricted_successor,
+        dimension=SupersessionDimension.SCIENTIFIC,
+        reason=f"Reason {restricted_v2}",
+    )
+    restricted_test = service.register_test_case(
+        pid,
+        node_id=f"tests/test_fixture.py::test_{restricted.lower()}",
+        kind=TestKind.NUMERICAL,
+        description=f"Test {restricted}",
+    )
+    service.link_verification(pid, restricted_test, decision_id=restricted_decision)
+    revision = service.record_workspace_revision(
+        pid, vcs_ref=None, symbols=(), symbols_indexed=False
+    )
+    moment = datetime(2026, 11, 12, tzinfo=UTC)
+    service.record_validation_run(
+        pid,
+        RunDraft(
+            revision_id=revision.revision_id,
+            environment=EnvironmentDraft("3.12.0", "CPython", "linux", ()),
+            origin=RunOrigin.EXECUTED,
+            started_at=moment,
+            finished_at=moment,
+            results=(
+                TestResult(restricted_test, TestOutcome.FAILED, 0.5, f"Failure {restricted}"),
+            ),
+        ),
+    )
     graph = service.load(pid)
     if derive_status(graph, restricted_decision).status is DecisionStatus.SUPPORTED:
         service.review_decision(
@@ -238,6 +290,7 @@ def _exported_ids(document: dict[str, object]) -> set[tuple[str, str]]:
         found.update(("source_version", version["id"]) for version in source["versions"])
     found.update(("claim", claim["id"]) for claim in document.get("claims", []))  # type: ignore[attr-defined]
     found.update(("decision", item["id"]) for item in document.get("decisions", []))  # type: ignore[attr-defined]
+    found.update(("test_case", item["id"]) for item in document.get("test_cases", []))  # type: ignore[attr-defined]
     return found
 
 
@@ -252,6 +305,7 @@ def test_every_withheld_record_is_listed_and_nothing_else(audience: AccessClass)
         | {("source_version", item.id) for item in graph.versions}
         | {("claim", item.id) for item in graph.claims}
         | {("decision", item.id) for item in graph.decisions}
+        | {("test_case", item.id) for item in graph.test_cases}
     )
     exported: set[tuple[str, str]] = set()
     withheld: set[tuple[str, str]] = set()
@@ -302,3 +356,49 @@ def test_prompt_injection_quote_is_exported_verbatim_and_does_not_affect_status(
     assert exported["status"] == "unsupported"
     assert exported["reviews"] == []
     assert derive_status(graph, decision).status is DecisionStatus.UNSUPPORTED
+
+
+def test_withheld_tests_are_removed_from_runs_and_supersession_reasons_are_replaced() -> None:
+    fixture = _build(
+        ("ABCDEFGHJK", "LMNPQRSTUV"),
+        (SourceAuthority.APPROVED_INTERNAL, SourceAuthority.WORKING_MATERIAL),
+    )
+    graph = fixture.graph
+    report = build_export(
+        graph,
+        ExportArtifact.VALIDATION_REPORT,
+        audience=AccessClass.INTERNAL,
+        generator_version="t",
+    )
+    [withheld_test] = report["withheld"]  # type: ignore[misc]
+    assert withheld_test["kind"] == "test_case"
+    assert withheld_test["access_class"] == "restricted"
+    assert report["test_cases"] == []
+    [run] = report["runs"]  # type: ignore[misc]
+    assert run["results"] == []
+    assert sum(run["summary"].values()) == 0
+    assert report["summary"]["test_case_count"] == 0  # type: ignore[index]
+
+    manifest = build_export(
+        graph, ExportArtifact.EVIDENCE_MANIFEST, audience=AccessClass.PUBLIC, generator_version="t"
+    )
+    notices = [
+        notice
+        for source in manifest["sources"]  # type: ignore[attr-defined]
+        for version in source["versions"]
+        for notice in version["superseded_by"]
+    ]
+    assert [notice["reason"] for notice in notices] == [WITHHELD_SUPERSESSION_REASON]
+    full = build_export(
+        graph,
+        ExportArtifact.EVIDENCE_MANIFEST,
+        audience=AccessClass.RESTRICTED,
+        generator_version="t",
+    )
+    reasons = [
+        notice["reason"]
+        for source in full["sources"]  # type: ignore[attr-defined]
+        for version in source["versions"]
+        for notice in version["superseded_by"]
+    ]
+    assert reasons == [f"Reason {fixture.restricted_markers[2]}"]

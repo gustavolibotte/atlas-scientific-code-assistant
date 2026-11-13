@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:asca:schema:validation_report:v1",
   "title": "ASCA validation report v1",
-  "description": "Test cases, environments and validation runs of one project. Test records are never withheld; references to withheld decisions stay opaque identifiers.",
+  "description": "Test cases, environments and validation runs of one project. A test case inherits the most restrictive access class of the decisions it verifies and is withheld whole from audiences that may not see it; its results are removed from every run. A test whose latest run is synthetic counts as not_run in the summary.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -36,12 +36,11 @@
         "additionalProperties": false,
         "required": ["kind", "id", "access_class"],
         "properties": {
-          "kind": {"$ref": "#/$defs/withheld_kind"},
+          "kind": {"const": "test_case"},
           "id": {"$ref": "#/$defs/id"},
           "access_class": {"allOf": [{"$ref": "#/$defs/access_class"}, {"not": {"const": "public"}}]}
         }
-      },
-      "maxItems": 0
+      }
     },
     "environments": {
       "type": "array",
@@ -160,7 +159,7 @@
                 "message": {"type": ["string", "null"], "minLength": 1}
               }
             },
-            "minItems": 1
+            "description": "Results of test cases visible to the audience; empty when every result belongs to a withheld test case."
           }
         }
       }
@@ -211,7 +210,7 @@
     "utc": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
     "date": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
     "access_class": {"type": "string", "enum": ["public", "internal", "restricted"]},
-    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision"]},
+    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision", "test_case"]},
     "generator": {
       "type": "object",
       "additionalProperties": false,

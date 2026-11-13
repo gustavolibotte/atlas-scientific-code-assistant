@@ -164,3 +164,22 @@ def test_security_headers_on_inspection_and_export_responses(client: TestClient)
     _assert_security_headers(export.headers)
     for path in _routes()[:2]:
         _assert_security_headers(client.get(path).headers)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/projects/prj_ECHOMARKERZZZ/symbols",
+        f"/api/v1/projects/{VALID_PROJECT}/symbols/sym_ECHOMARKERZZZ/inspection",
+        f"/api/v1/projects/{VALID_PROJECT}/exports/ECHOMARKERZZZ",
+        f"/api/v1/projects/{VALID_PROJECT}/exports/evidence_manifest?audience=ECHOMARKERZZZ",
+    ],
+)
+def test_validation_errors_never_echo_the_rejected_value(client: TestClient, path: str) -> None:
+    response = client.get(path)
+    assert response.status_code == 422
+    assert "ECHOMARKERZZZ" not in response.text
+    detail = response.json()["detail"]
+    assert detail
+    for error in detail:
+        assert set(error) == {"loc", "type"}

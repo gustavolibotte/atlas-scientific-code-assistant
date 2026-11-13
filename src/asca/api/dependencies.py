@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from fastapi import FastAPI, Path, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from asca.application.errors import ProjectNotFoundError, StoredGraphIntegrityError
@@ -26,8 +27,19 @@ async def _integrity_error(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": "Provenance store integrity error"})
 
 
+async def _invalid_request(request: Request, exc: Exception) -> JSONResponse:
+    """Report where and why a request is invalid, never the rejected value itself."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    detail = [
+        {"loc": [str(part) for part in error.get("loc", ())], "type": str(error.get("type", ""))}
+        for error in errors
+    ]
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
 def register_provenance_error_handlers(app: FastAPI) -> None:
     """Map provenance errors to bodies that never echo input, ids, SQL or URLs."""
+    app.add_exception_handler(RequestValidationError, _invalid_request)
     app.add_exception_handler(ProjectNotFoundError, _not_found)
     app.add_exception_handler(RecordNotFoundError, _not_found)
     app.add_exception_handler(StoredGraphIntegrityError, _integrity_error)
