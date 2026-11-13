@@ -28,10 +28,16 @@ be pre-generated in an offline build environment. Never commit `.env` or tokens.
 
 ```bash
 uv sync --all-groups
-uv run uvicorn asca.api.main:create_app --factory --host 127.0.0.1 --port 8000
+uv run uvicorn asca.api.main:create_app_from_environment --factory --host 127.0.0.1 --port 8000
 ```
 
 API docs: http://127.0.0.1:8000/docs
+
+Provenance is stored in SQLite. `ASCA_DATABASE_URL` selects the database; the default is
+`sqlite+pysqlite:///./.asca/asca.db` (the `.asca/` directory is created with mode `0700` and is
+ignored by Git). Only `sqlite+pysqlite:///` URLs are supported, for example
+`ASCA_DATABASE_URL=sqlite+pysqlite:///:memory:` for a throwaway run. The schema is migrated on
+startup. Keep the API on `127.0.0.1`: it has no authentication.
 
 ## Start the UI
 

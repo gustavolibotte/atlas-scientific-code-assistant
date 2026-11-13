@@ -13,8 +13,10 @@ Web UI / CLI --> HTTP API --> Application --> Domain
                             Infrastructure adapters
 ```
 
-The first API includes read-only health, capability discovery, and a **synthetic** provenance
-trace. No real document retrieval, code execution, or CERN authentication has been implemented.
+The API is read-only: health, capability discovery, a persisted provenance store with function
+inspection and versioned exports, and the deprecated legacy trace, which is now served from a
+stored **synthetic** demonstration project. No real document retrieval, code execution, or CERN
+authentication has been implemented.
 
 ## Dependency rules
 
@@ -25,12 +27,28 @@ trace. No real document retrieval, code execution, or CERN authentication has be
 5. The UI is a separate application and never assumes a knowledge provider is online.
 6. Source code and external documents are untrusted until checked against policy.
 
-## First domain model
+## Provenance domain model (M1)
 
-`ProvenanceTrace` ensures that a decision's evidence IDs, code symbol IDs, and verification IDs
-resolve against actual entries. The synthetic fixture is not science-backed and labels itself
-as such. Future storage will preserve source versions, code revisions, proof status, and human
-approvals, without inventing official ATLAS endorsements.
+`asca.domain.provenance` holds one immutable `ProvenanceGraph` per project: sources and their
+versions (authority, access class, content hash), supersession notices, claims with append-only
+claim checks, scientific decisions, evidence and implementation and verification links, workspace
+revisions and code symbols, test cases, environment snapshots, validation runs and approvals.
+
+- State invariants run on every load; transition rules run on every append.
+- Decision status is derived, never stored. A `supported` decision needs a checked quote
+  (`source_text_checked`), whose source text must match the version's content hash. An
+  approval stores a support fingerprint and goes stale when the evidence changes.
+- A decision's effective access class is the most restrictive class of its evidence. Exports
+  withhold whole records the audience may not see.
+- `ProvenanceService` (application) writes through the `ProvenanceRepository` port. The SQLite
+  adapter in `asca.infrastructure.persistence` (SQLAlchemy 2, Alembic) is append-only and
+  advances a per-project revision with compare-and-set.
+- Inspection (`asca.application.inspection`) and exports (`asca.application.exports`, schemas
+  in `asca.contracts`) are pure functions over a loaded graph.
+
+The demonstration project is synthetic, is not science-backed and labels itself as such. No
+official ATLAS endorsement is inferred. See
+[ADR-0038](../adr/0038-persisted-provenance-graph-and-export-contracts.md).
 
 ## Planned integrations
 
