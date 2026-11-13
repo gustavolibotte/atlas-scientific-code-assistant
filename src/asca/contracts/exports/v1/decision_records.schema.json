@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:asca:schema:decision_records:v1",
+  "title": "ASCA decision records v1",
+  "description": "Scientific decisions with derived status, evidence, implementation, verification and recorded reviews, filtered for an audience by each decision's effective access class.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "generator",
+    "project",
+    "audience",
+    "policy_note",
+    "synthetic_notice",
+    "withheld",
+    "decisions"
+  ],
+  "properties": {
+    "schema": {"const": "urn:asca:schema:decision_records:v1"},
+    "schema_version": {"const": "1.0.0"},
+    "generator": {"$ref": "#/$defs/generator"},
+    "project": {"$ref": "#/$defs/project"},
+    "audience": {"$ref": "#/$defs/access_class"},
+    "policy_note": {
+      "const": "Evidence categories and access classes are ASCA project policy, not an official ATLAS classification. Reviews recorded in ASCA are not ATLAS collaboration approval."
+    },
+    "synthetic_notice": {"type": ["string", "null"]},
+    "withheld": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "access_class"],
+        "properties": {
+          "kind": {"const": "decision"},
+          "id": {"$ref": "#/$defs/id"},
+          "access_class": {"allOf": [{"$ref": "#/$defs/access_class"}, {"not": {"const": "public"}}]}
+        }
+      }
+    },
+    "decisions": {"type": "array", "items": {"$ref": "#/$defs/decision"}}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["project"],
+        "properties": {
+          "project": {"required": ["is_synthetic"], "properties": {"is_synthetic": {"const": true}}}
+        }
+      },
+      "then": {
+        "properties": {
+          "synthetic_notice": {"const": "Synthetic demonstration: no real source, code or test was consulted."}
+        }
+      },
+      "else": {"properties": {"synthetic_notice": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z]{3}_[0-9a-f]{32}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "utc": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
+    "date": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "access_class": {"type": "string", "enum": ["public", "internal", "restricted"]},
+    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision"]},
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {"name": {"const": "asca"}, "version": {"type": "string", "minLength": 1}}
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "is_synthetic", "revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "is_synthetic": {"type": "boolean"},
+        "revision": {"type": "integer", "minimum": 0}
+      }
+    },
+    "decision_status": {
+      "type": "string",
+      "enum": ["proposed", "supported", "unsupported", "conflicting", "approved", "rejected"]
+    },
+    "status_reason": {
+      "type": "string",
+      "enum": [
+        "no_evidence_links",
+        "checked_support",
+        "checked_contradiction",
+        "unchecked_support_only",
+        "support_failed_check",
+        "automated_inference_ignored",
+        "approval_current",
+        "approval_stale",
+        "rejected_by_review",
+        "support_scientifically_superseded",
+        "support_technically_superseded",
+        "decision_superseded"
+      ]
+    },
+    "stance": {"type": "string", "enum": ["supports", "contradicts", "context"]},
+    "assertion_origin": {"type": "string", "enum": ["human", "automated"]},
+    "claim_verification_state": {
+      "type": "string",
+      "enum": ["not_checked", "source_text_checked", "mismatch", "unavailable"]
+    },
+    "source_authority": {
+      "type": "string",
+      "enum": [
+        "published",
+        "approved_internal",
+        "verified_implementation",
+        "working_material",
+        "automated_inference"
+      ]
+    },
+    "approval_verdict": {"type": "string", "enum": ["approved", "rejected"]},
+    "link_freshness": {"type": "string", "enum": ["current", "stale", "moved", "orphaned", "unknown"]},
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "statement",
+        "rationale",
+        "alternatives",
+        "assumptions",
+        "access_floor",
+        "effective_access_class",
+        "status",
+        "evidential_status",
+        "status_reasons",
+        "approval_stale",
+        "support_fingerprint",
+        "supersedes",
+        "superseded_by",
+        "created_at",
+        "evidence",
+        "implemented_by",
+        "verified_by",
+        "reviews"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "statement": {"type": "string", "minLength": 1},
+        "rationale": {"type": "string", "minLength": 1},
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "description", "reason_not_chosen"],
+            "properties": {
+              "label": {"type": "string", "minLength": 1},
+              "description": {"type": "string", "minLength": 1},
+              "reason_not_chosen": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["statement", "justification"],
+            "properties": {
+              "statement": {"type": "string", "minLength": 1},
+              "justification": {"type": ["string", "null"], "minLength": 1}
+            }
+          }
+        },
+        "access_floor": {"$ref": "#/$defs/access_class"},
+        "effective_access_class": {"$ref": "#/$defs/access_class"},
+        "status": {"$ref": "#/$defs/decision_status"},
+        "evidential_status": {"$ref": "#/$defs/decision_status"},
+        "status_reasons": {"type": "array", "items": {"$ref": "#/$defs/status_reason"}, "uniqueItems": true},
+        "approval_stale": {"type": "boolean"},
+        "support_fingerprint": {"$ref": "#/$defs/sha256"},
+        "supersedes": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "superseded_by": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "created_at": {"$ref": "#/$defs/utc"},
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "link_id",
+              "claim_id",
+              "stance",
+              "asserted_by",
+              "note",
+              "claim_state",
+              "authority",
+              "created_at"
+            ],
+            "properties": {
+              "link_id": {"$ref": "#/$defs/id"},
+              "claim_id": {"$ref": "#/$defs/id"},
+              "stance": {"$ref": "#/$defs/stance"},
+              "asserted_by": {"$ref": "#/$defs/assertion_origin"},
+              "note": {"type": ["string", "null"], "minLength": 1},
+              "claim_state": {"$ref": "#/$defs/claim_verification_state"},
+              "authority": {"$ref": "#/$defs/source_authority"},
+              "created_at": {"$ref": "#/$defs/utc"}
+            }
+          }
+        },
+        "implemented_by": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "link_id",
+              "symbol_id",
+              "qualified_name",
+              "file_path",
+              "revision_sequence",
+              "fingerprint",
+              "freshness",
+              "created_at"
+            ],
+            "properties": {
+              "link_id": {"$ref": "#/$defs/id"},
+              "symbol_id": {"$ref": "#/$defs/id"},
+              "qualified_name": {"type": "string", "minLength": 1},
+              "file_path": {"type": "string", "minLength": 1},
+              "revision_sequence": {"type": "integer", "minimum": 1},
+              "fingerprint": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+              "freshness": {"$ref": "#/$defs/link_freshness"},
+              "created_at": {"$ref": "#/$defs/utc"}
+            }
+          }
+        },
+        "verified_by": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["link_id", "test_case_id"],
+            "properties": {"link_id": {"$ref": "#/$defs/id"}, "test_case_id": {"$ref": "#/$defs/id"}}
+          }
+        },
+        "reviews": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "sequence",
+              "verdict",
+              "reviewer",
+              "rationale",
+              "conflict_resolution",
+              "support_fingerprint",
+              "reviewed_at",
+              "is_current"
+            ],
+            "properties": {
+              "id": {"$ref": "#/$defs/id"},
+              "sequence": {"type": "integer", "minimum": 1},
+              "verdict": {"$ref": "#/$defs/approval_verdict"},
+              "reviewer": {"type": "string", "minLength": 1},
+              "rationale": {"type": "string", "minLength": 1},
+              "conflict_resolution": {"type": ["string", "null"], "minLength": 1},
+              "support_fingerprint": {"$ref": "#/$defs/sha256"},
+              "reviewed_at": {"$ref": "#/$defs/utc"},
+              "is_current": {"type": "boolean"}
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"required": ["status"], "properties": {"status": {"const": "approved"}}},
+          "then": {"properties": {"reviews": {"minItems": 1}, "approval_stale": {"const": false}}}
+        },
+        {
+          "if": {
+            "required": ["status"],
+            "properties": {
+              "status": {
+                "anyOf": [{"const": "supported"}, {"const": "conflicting"}, {"const": "approved"}]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "contains": {
+                  "type": "object",
+                  "required": ["stance", "claim_state", "authority"],
+                  "properties": {
+                    "stance": {"const": "supports"},
+                    "claim_state": {"const": "source_text_checked"},
+                    "authority": {"not": {"const": "automated_inference"}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

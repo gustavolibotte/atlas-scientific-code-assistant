@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:asca:schema:validation_report:v1",
+  "title": "ASCA validation report v1",
+  "description": "Test cases, environments and validation runs of one project. Test records are never withheld; references to withheld decisions stay opaque identifiers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "generator",
+    "project",
+    "audience",
+    "policy_note",
+    "synthetic_notice",
+    "withheld",
+    "environments",
+    "test_cases",
+    "runs",
+    "summary"
+  ],
+  "properties": {
+    "schema": {"const": "urn:asca:schema:validation_report:v1"},
+    "schema_version": {"const": "1.0.0"},
+    "generator": {"$ref": "#/$defs/generator"},
+    "project": {"$ref": "#/$defs/project"},
+    "audience": {"$ref": "#/$defs/access_class"},
+    "policy_note": {
+      "const": "Evidence categories and access classes are ASCA project policy, not an official ATLAS classification. Reviews recorded in ASCA are not ATLAS collaboration approval."
+    },
+    "synthetic_notice": {"type": ["string", "null"]},
+    "withheld": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "access_class"],
+        "properties": {
+          "kind": {"$ref": "#/$defs/withheld_kind"},
+          "id": {"$ref": "#/$defs/id"},
+          "access_class": {"allOf": [{"$ref": "#/$defs/access_class"}, {"not": {"const": "public"}}]}
+        }
+      },
+      "maxItems": 0
+    },
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "python_version", "implementation", "platform", "packages"],
+        "properties": {
+          "id": {"$ref": "#/$defs/id"},
+          "python_version": {"type": "string", "minLength": 1},
+          "implementation": {"type": "string", "minLength": 1},
+          "platform": {"type": "string", "minLength": 1},
+          "packages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version"],
+              "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "version": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    },
+    "test_cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "node_id", "kind", "description", "created_at", "verifies", "latest"],
+        "properties": {
+          "id": {"$ref": "#/$defs/id"},
+          "node_id": {"type": "string", "minLength": 1},
+          "kind": {"$ref": "#/$defs/test_kind"},
+          "description": {"type": "string", "minLength": 1},
+          "created_at": {"$ref": "#/$defs/utc"},
+          "verifies": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["decision_ids", "symbol_ids"],
+            "properties": {
+              "decision_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+              "symbol_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+            }
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["run_id", "outcome", "origin"],
+                "properties": {
+                  "run_id": {"$ref": "#/$defs/id"},
+                  "outcome": {"$ref": "#/$defs/test_outcome"},
+                  "origin": {"$ref": "#/$defs/run_origin"}
+                }
+              },
+              {"type": "null"}
+            ]
+          }
+        }
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "origin",
+          "revision_id",
+          "revision_sequence",
+          "vcs_ref",
+          "environment_id",
+          "started_at",
+          "finished_at",
+          "summary",
+          "results"
+        ],
+        "properties": {
+          "id": {"$ref": "#/$defs/id"},
+          "origin": {"$ref": "#/$defs/run_origin"},
+          "revision_id": {"$ref": "#/$defs/id"},
+          "revision_sequence": {"type": "integer", "minimum": 1},
+          "vcs_ref": {"type": ["string", "null"], "minLength": 1},
+          "environment_id": {"$ref": "#/$defs/id"},
+          "started_at": {"$ref": "#/$defs/utc"},
+          "finished_at": {"$ref": "#/$defs/utc"},
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["passed", "failed", "error", "skipped", "xfailed", "xpassed"],
+            "properties": {
+              "passed": {"type": "integer", "minimum": 0},
+              "failed": {"type": "integer", "minimum": 0},
+              "error": {"type": "integer", "minimum": 0},
+              "skipped": {"type": "integer", "minimum": 0},
+              "xfailed": {"type": "integer", "minimum": 0},
+              "xpassed": {"type": "integer", "minimum": 0}
+            }
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["test_case_id", "outcome", "duration_seconds", "message"],
+              "properties": {
+                "test_case_id": {"$ref": "#/$defs/id"},
+                "outcome": {"$ref": "#/$defs/test_outcome"},
+                "duration_seconds": {"type": ["number", "null"], "minimum": 0},
+                "message": {"type": ["string", "null"], "minLength": 1}
+              }
+            },
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["test_case_count", "run_count", "latest_outcomes"],
+      "properties": {
+        "test_case_count": {"type": "integer", "minimum": 0},
+        "run_count": {"type": "integer", "minimum": 0},
+        "latest_outcomes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "failed", "error", "skipped", "xfailed", "xpassed", "not_run"],
+          "properties": {
+            "passed": {"type": "integer", "minimum": 0},
+            "failed": {"type": "integer", "minimum": 0},
+            "error": {"type": "integer", "minimum": 0},
+            "skipped": {"type": "integer", "minimum": 0},
+            "xfailed": {"type": "integer", "minimum": 0},
+            "xpassed": {"type": "integer", "minimum": 0},
+            "not_run": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["project"],
+        "properties": {
+          "project": {"required": ["is_synthetic"], "properties": {"is_synthetic": {"const": true}}}
+        }
+      },
+      "then": {
+        "properties": {
+          "synthetic_notice": {"const": "Synthetic demonstration: no real source, code or test was consulted."}
+        }
+      },
+      "else": {"properties": {"synthetic_notice": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z]{3}_[0-9a-f]{32}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "utc": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
+    "date": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "access_class": {"type": "string", "enum": ["public", "internal", "restricted"]},
+    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision"]},
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {"name": {"const": "asca"}, "version": {"type": "string", "minLength": 1}}
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "is_synthetic", "revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "is_synthetic": {"type": "boolean"},
+        "revision": {"type": "integer", "minimum": 0}
+      }
+    },
+    "test_kind": {
+      "type": "string",
+      "enum": ["analytic", "numerical", "property", "regression", "unit", "integration"]
+    },
+    "test_outcome": {"type": "string", "enum": ["passed", "failed", "error", "skipped", "xfailed", "xpassed"]},
+    "run_origin": {"type": "string", "enum": ["executed", "imported", "synthetic"]}
+  }
+}

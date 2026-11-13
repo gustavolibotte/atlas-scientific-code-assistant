@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:asca:schema:evidence_manifest:v1",
+  "title": "ASCA evidence manifest v1",
+  "description": "Sources, source versions and quoted claims of one project at one revision, filtered for an audience. Records the audience may not see are listed in 'withheld'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "generator",
+    "project",
+    "audience",
+    "policy_note",
+    "synthetic_notice",
+    "withheld",
+    "sources",
+    "claims"
+  ],
+  "properties": {
+    "schema": {"const": "urn:asca:schema:evidence_manifest:v1"},
+    "schema_version": {"const": "1.0.0"},
+    "generator": {"$ref": "#/$defs/generator"},
+    "project": {"$ref": "#/$defs/project"},
+    "audience": {"$ref": "#/$defs/access_class"},
+    "policy_note": {
+      "const": "Evidence categories and access classes are ASCA project policy, not an official ATLAS classification. Reviews recorded in ASCA are not ATLAS collaboration approval."
+    },
+    "synthetic_notice": {"type": ["string", "null"]},
+    "withheld": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "access_class"],
+        "properties": {
+          "kind": {"allOf": [{"$ref": "#/$defs/withheld_kind"}, {"not": {"const": "decision"}}]},
+          "id": {"$ref": "#/$defs/id"},
+          "access_class": {"allOf": [{"$ref": "#/$defs/access_class"}, {"not": {"const": "public"}}]}
+        }
+      }
+    },
+    "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}},
+    "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["project"],
+        "properties": {
+          "project": {"required": ["is_synthetic"], "properties": {"is_synthetic": {"const": true}}}
+        }
+      },
+      "then": {
+        "properties": {
+          "synthetic_notice": {"const": "Synthetic demonstration: no real source, code or test was consulted."}
+        }
+      },
+      "else": {"properties": {"synthetic_notice": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z]{3}_[0-9a-f]{32}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "utc": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
+    "date": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "access_class": {"type": "string", "enum": ["public", "internal", "restricted"]},
+    "withheld_kind": {"type": "string", "enum": ["source", "source_version", "claim", "decision"]},
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {"name": {"const": "asca"}, "version": {"type": "string", "minLength": 1}}
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "is_synthetic", "revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "is_synthetic": {"type": "boolean"},
+        "revision": {"type": "integer", "minimum": 0}
+      }
+    },
+    "pid_scheme": {
+      "type": "string",
+      "enum": [
+        "doi",
+        "arxiv",
+        "inspire",
+        "cds_report",
+        "cds_record",
+        "git_repository",
+        "url",
+        "local_document",
+        "synthetic"
+      ]
+    },
+    "source_authority": {
+      "type": "string",
+      "enum": [
+        "published",
+        "approved_internal",
+        "verified_implementation",
+        "working_material",
+        "automated_inference"
+      ]
+    },
+    "authority_letter": {"type": "string", "enum": ["A", "B", "C", "D", "E"]},
+    "currency": {"type": "string", "enum": ["current", "superseded"]},
+    "supersession_dimension": {"type": "string", "enum": ["scientific", "technical"]},
+    "locator_kind": {
+      "type": "string",
+      "enum": [
+        "page",
+        "section",
+        "paragraph",
+        "equation",
+        "figure",
+        "table",
+        "line_range",
+        "path",
+        "anchor"
+      ]
+    },
+    "assertion_origin": {"type": "string", "enum": ["human", "automated"]},
+    "claim_verification_state": {
+      "type": "string",
+      "enum": ["not_checked", "source_text_checked", "mismatch", "unavailable"]
+    },
+    "claim_check_outcome": {"type": "string", "enum": ["source_text_checked", "mismatch", "unavailable"]},
+    "check_method": {"type": "string", "enum": ["normalized_substring", "not_performed"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "persistent_id", "is_synthetic", "versions"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "persistent_id": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scheme", "value"],
+          "properties": {
+            "scheme": {"$ref": "#/$defs/pid_scheme"},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        "is_synthetic": {"type": "boolean"},
+        "versions": {"type": "array", "items": {"$ref": "#/$defs/source_version"}}
+      }
+    },
+    "source_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version_label",
+        "authority",
+        "authority_letter",
+        "access_class",
+        "access_conditions",
+        "authority_basis",
+        "content_sha256",
+        "retrieved_at",
+        "published_on",
+        "recorded_at",
+        "currency",
+        "superseded_by"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "version_label": {"type": "string", "minLength": 1},
+        "authority": {"$ref": "#/$defs/source_authority"},
+        "authority_letter": {"$ref": "#/$defs/authority_letter"},
+        "access_class": {"$ref": "#/$defs/access_class"},
+        "access_conditions": {"type": ["string", "null"], "minLength": 1},
+        "authority_basis": {"type": ["string", "null"], "minLength": 1},
+        "content_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "retrieved_at": {"anyOf": [{"$ref": "#/$defs/utc"}, {"type": "null"}]},
+        "published_on": {"anyOf": [{"$ref": "#/$defs/date"}, {"type": "null"}]},
+        "recorded_at": {"$ref": "#/$defs/utc"},
+        "currency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scientific", "technical"],
+          "properties": {
+            "scientific": {"$ref": "#/$defs/currency"},
+            "technical": {"$ref": "#/$defs/currency"}
+          }
+        },
+        "superseded_by": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["dimension", "version_id", "reason", "recorded_at"],
+            "properties": {
+              "dimension": {"$ref": "#/$defs/supersession_dimension"},
+              "version_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+              "reason": {"type": "string", "minLength": 1},
+              "recorded_at": {"$ref": "#/$defs/utc"}
+            }
+          }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_version_id",
+        "quote",
+        "locator",
+        "statement",
+        "extracted_by",
+        "recorded_at",
+        "verification"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "source_version_id": {"$ref": "#/$defs/id"},
+        "quote": {"type": "string", "minLength": 1},
+        "locator": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "value"],
+            "properties": {
+              "kind": {"$ref": "#/$defs/locator_kind"},
+              "value": {"type": "string", "minLength": 1}
+            }
+          },
+          "minItems": 1,
+          "maxItems": 6
+        },
+        "statement": {"type": ["string", "null"], "minLength": 1},
+        "extracted_by": {"$ref": "#/$defs/assertion_origin"},
+        "recorded_at": {"$ref": "#/$defs/utc"},
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "normalization_version", "checks"],
+          "properties": {
+            "state": {"$ref": "#/$defs/claim_verification_state"},
+            "normalization_version": {"const": 1},
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["sequence", "outcome", "method", "content_sha256", "detail", "checked_at"],
+                "properties": {
+                  "sequence": {"type": "integer", "minimum": 1},
+                  "outcome": {"$ref": "#/$defs/claim_check_outcome"},
+                  "method": {"$ref": "#/$defs/check_method"},
+                  "content_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+                  "detail": {"type": ["string", "null"], "minLength": 1},
+                  "checked_at": {"$ref": "#/$defs/utc"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

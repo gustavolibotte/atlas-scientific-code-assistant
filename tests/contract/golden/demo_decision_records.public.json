@@ -1,0 +1,88 @@
+{
+  "audience": "public",
+  "decisions": [
+    {
+      "access_floor": "public",
+      "alternatives": [
+        {
+          "description": "Average the samples with equal weights.",
+          "label": "Unweighted mean",
+          "reason_not_chosen": "Ignores the assumed noise correlations in this illustration."
+        }
+      ],
+      "approval_stale": false,
+      "assumptions": [
+        {
+          "justification": "Stated as an assumption in the synthetic note; not validated.",
+          "statement": "Noise is stationary with a known covariance matrix."
+        }
+      ],
+      "created_at": "2026-11-12T00:00:00.000000Z",
+      "effective_access_class": "public",
+      "evidence": [
+        {
+          "asserted_by": "human",
+          "authority": "working_material",
+          "claim_id": "clm_f372d13433331abbc074ec9e8f8f8048",
+          "claim_state": "source_text_checked",
+          "created_at": "2026-11-12T00:00:00.000000Z",
+          "link_id": "evl_4b6c4d945e9f0b7739e27f71f3b689ef",
+          "note": null,
+          "stance": "supports"
+        }
+      ],
+      "evidential_status": "supported",
+      "id": "dec_46bd8fc57f30e9a34ef8f9f7ac18ab65",
+      "implemented_by": [
+        {
+          "created_at": "2026-11-12T00:00:00.000000Z",
+          "file_path": "src/reconstruction/estimators.py",
+          "fingerprint": null,
+          "freshness": "unknown",
+          "link_id": "iml_7c8407f2eea7eff40878ae963e5a871d",
+          "qualified_name": "estimate_amplitude",
+          "revision_sequence": 1,
+          "symbol_id": "sym_339fc20265d95f5908e478c6d3e8a7f2"
+        }
+      ],
+      "rationale": "Example decision, not an implemented or ATLAS-approved method.",
+      "reviews": [],
+      "statement": "Choose an estimator under an illustrative covariance assumption.",
+      "status": "supported",
+      "status_reasons": [
+        "checked_support"
+      ],
+      "superseded_by": null,
+      "supersedes": null,
+      "support_fingerprint": "26eef3fad08df8918b71ddefb23a10eae3b9516eb1048ccb77e7aa8d9e8ac727",
+      "title": "Illustrative estimator choice",
+      "verified_by": [
+        {
+          "link_id": "vfl_ca33594d6e48489e6351dcdb1e7668c6",
+          "test_case_id": "tst_6a36d057047f277ade13ec8d1e21cc83"
+        }
+      ]
+    }
+  ],
+  "generator": {
+    "name": "asca",
+    "version": "0.0.0-test"
+  },
+  "policy_note": "Evidence categories and access classes are ASCA project policy, not an official ATLAS classification. Reviews recorded in ASCA are not ATLAS collaboration approval.",
+  "project": {
+    "id": "prj_b79e44d485f857621b42922617a467a3",
+    "is_synthetic": true,
+    "revision": 19,
+    "title": "Synthetic demonstration project"
+  },
+  "schema": "urn:asca:schema:decision_records:v1",
+  "schema_version": "1.0.0",
+  "synthetic_notice": "Synthetic demonstration: no real source, code or test was consulted.",
+  "withheld": [
+    {
+      "access_class": "internal",
+      "id": "dec_36705bb8845bea2b0852c56ba58540c4",
+      "kind": "decision"
+    }
+  ]
+}
