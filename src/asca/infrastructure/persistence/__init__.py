@@ -1,11 +1,13 @@
 """SQLite persistence of provenance graphs (SQLAlchemy 2 and Alembic)."""
 
+import threading
 from dataclasses import dataclass
 
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from asca.infrastructure.persistence.database import (
+    MEMORY_URL,
     create_engine_for,
     run_migrations,
     validate_database_url,
@@ -40,5 +42,9 @@ def open_sqlite_store(database_url: str) -> SqliteProvenanceStore:
     except BaseException:
         engine.dispose()
         raise
-    repository = SqlAlchemyProvenanceRepository(sessionmaker(engine, expire_on_commit=False))
+    # The in-memory database is one connection shared by every thread: serialize it.
+    lock = threading.RLock() if url == MEMORY_URL else None
+    repository = SqlAlchemyProvenanceRepository(
+        sessionmaker(engine, expire_on_commit=False), lock=lock
+    )
     return SqliteProvenanceStore(repository=repository, engine=engine)

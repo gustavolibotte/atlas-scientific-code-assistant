@@ -1,6 +1,8 @@
 """SQLite engine construction and schema migration for the provenance store."""
 
 import re
+import sqlite3
+import time
 from typing import Any
 
 from alembic import command
@@ -11,6 +13,8 @@ from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 
 MIGRATIONS_LOCATION = "asca.infrastructure.persistence:migrations"
 MEMORY_URL = "sqlite+pysqlite:///:memory:"
+_BEGIN_IMMEDIATE = "asca_begin_immediate"
+_WAL_RETRY_SECONDS = 5.0
 _URL_RE = re.compile(r"sqlite\+pysqlite:///(:memory:|[^?#\x00]+)")
 
 
@@ -42,7 +46,7 @@ def create_engine_for(url: str) -> Engine:
             cursor.execute("PRAGMA foreign_keys=ON")
             if not in_memory:
                 cursor.execute("PRAGMA busy_timeout=5000")
-                cursor.execute("PRAGMA journal_mode=WAL")
+                _enable_wal(cursor)
         finally:
             cursor.close()
         if not in_memory:
@@ -52,15 +56,43 @@ def create_engine_for(url: str) -> Engine:
 
         @event.listens_for(engine, "begin")
         def _on_begin(connection: Connection) -> None:
-            connection.exec_driver_sql("BEGIN")
+            immediate = connection.get_execution_options().get(_BEGIN_IMMEDIATE, False)
+            connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate else "BEGIN")
 
     return engine
 
 
+def _enable_wal(cursor: Any) -> None:
+    """Switch a file database to WAL, retrying while another connection switches it.
+
+    The switch reads the header and then needs an exclusive lock; SQLite reports a
+    competing switch as "database is locked" at once instead of using the busy handler.
+    Once one connection has switched, WAL is persistent and the pragma takes no lock.
+    """
+    deadline = time.monotonic() + _WAL_RETRY_SECONDS
+    while True:
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as error:
+            if "locked" not in str(error).lower() or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
 def run_migrations(engine: Engine) -> None:
-    """Upgrade the database to the single head revision."""
+    """Upgrade the database to the single head revision.
+
+    On a file database the migration transaction takes the write lock up front
+    (``BEGIN IMMEDIATE``). A deferred transaction would first read the schema and then
+    fail to upgrade that read snapshot to a write once another process has migrated,
+    which SQLite reports as "database is locked" without waiting for the busy timeout.
+    With the lock taken first, a concurrent starter waits and then finds the head.
+    """
     cfg = Config()
     cfg.set_main_option("script_location", MIGRATIONS_LOCATION)
-    with engine.begin() as conn:
-        cfg.attributes["connection"] = conn
-        command.upgrade(cfg, "head")
+    with engine.connect() as conn:
+        conn.execution_options(**{_BEGIN_IMMEDIATE: True})
+        with conn.begin():
+            cfg.attributes["connection"] = conn
+            command.upgrade(cfg, "head")

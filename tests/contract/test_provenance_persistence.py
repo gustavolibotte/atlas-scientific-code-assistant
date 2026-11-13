@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import sqlite3
+import threading
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +20,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 from sqlalchemy.orm import sessionmaker
 
+from asca.application.demo import DEMO_PROJECT_ID, seed_synthetic_demo
 from asca.application.errors import (
     ConcurrentModificationError,
     DuplicateProjectError,
@@ -39,6 +43,7 @@ from asca.domain.provenance import (
     SourceVersionId,
     ValidationRun,
 )
+from asca.infrastructure.memory_provenance import InMemoryProvenanceRepository
 from asca.infrastructure.persistence import (
     SqlAlchemyProvenanceRepository,
     SqliteProvenanceStore,
@@ -133,6 +138,21 @@ def test_replayed_scripts_load_identically_from_sqlite_and_memory(script: Script
         )
     finally:
         store.dispose()
+
+
+def test_seeded_demo_loads_identically_from_sqlite_and_memory(
+    memory_store: SqliteProvenanceStore,
+) -> None:
+    """The demo has alternatives and assumptions (with and without a justification)."""
+    seed_synthetic_demo(memory_store.repository)
+    memory = InMemoryProvenanceRepository()
+    seed_synthetic_demo(memory)
+    stored = memory_store.repository.load(DEMO_PROJECT_ID)
+    assert stored == memory.load(DEMO_PROJECT_ID)
+    details = [(item.alternatives, item.assumptions) for item in stored.decisions]
+    assert any(alternatives for alternatives, _ in details)
+    justifications = {item.justification for _, items in details for item in items}
+    assert None in justifications and len(justifications) > 1
 
 
 # ---------------------------------------------------------------------- engine and types
@@ -374,6 +394,73 @@ def test_constraint_violation_rolls_back_the_whole_append(
     assert isinstance(caught.value.__cause__, sa.exc.IntegrityError)
     assert repository.load(project.id).revision == 0
     assert _count(memory_store, "sources") == 0
+
+
+# ---------------------------------------------------------------------- concurrency
+
+
+def test_concurrent_loads_on_the_shared_in_memory_store_return_the_stored_graph(
+    memory_store: SqliteProvenanceStore,
+) -> None:
+    repository = memory_store.repository
+    ids = build_complete_real_project(make_service(repository))
+    reference = repository.load(ids.project)
+    start = threading.Barrier(16)
+
+    def load_many(_: int) -> list[ProvenanceGraph | str]:
+        start.wait()
+        outcomes: list[ProvenanceGraph | str] = []
+        for _ in range(25):
+            try:
+                graph = repository.load(ids.project)
+                listed = [item.project.id for item in repository.list_projects()]
+                outcomes.append(graph if listed == [ids.project] else "wrong project list")
+            except Exception as error:  # every error is a failure; report its type
+                outcomes.append(type(error).__name__)
+        return outcomes
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        outcomes = [item for batch in pool.map(load_many, range(16)) for item in batch]
+    assert len(outcomes) == 16 * 25
+    assert [item for item in outcomes if item != reference] == []
+
+
+def _open_store_at_barrier(url: str, barrier: object, results: object) -> None:
+    barrier.wait()  # type: ignore[attr-defined]
+    try:
+        store = open_sqlite_store(url)
+    except Exception as error:
+        results.put(f"{type(error).__name__}: {error}")  # type: ignore[attr-defined]
+        return
+    store.dispose()
+    results.put("ok")  # type: ignore[attr-defined]
+
+
+def test_concurrent_first_start_on_a_fresh_file_migrates_once(tmp_path: Path) -> None:
+    context = multiprocessing.get_context("fork")
+    processes_per_trial = 4
+    outcomes: list[str] = []
+    for trial in range(3):
+        url = _file_url(tmp_path / f"fresh-{trial}.db")
+        barrier = context.Barrier(processes_per_trial)
+        results = context.Queue()
+        workers = [
+            context.Process(target=_open_store_at_barrier, args=(url, barrier, results))
+            for _ in range(processes_per_trial)
+        ]
+        for worker in workers:
+            worker.start()
+        outcomes.extend(results.get(timeout=60) for _ in workers)
+        for worker in workers:
+            worker.join(timeout=60)
+        store = open_sqlite_store(url)
+        try:
+            with store.engine.connect() as conn:
+                heads = conn.exec_driver_sql("SELECT version_num FROM alembic_version").all()
+        finally:
+            store.dispose()
+        assert len(heads) == 1
+    assert outcomes == ["ok"] * (3 * processes_per_trial)
 
 
 # ---------------------------------------------------------------------- projects

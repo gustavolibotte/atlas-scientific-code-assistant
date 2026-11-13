@@ -21,7 +21,7 @@ from asca.api.main import (
 from asca.application.demo import DEMO_PROJECT_ID
 from asca.application.exports import ExportArtifact
 from asca.application.provenance import ProvenanceService
-from asca.infrastructure.persistence import SqliteProvenanceStore
+from asca.infrastructure.persistence import SqlAlchemyProvenanceRepository, SqliteProvenanceStore
 
 pytestmark = pytest.mark.contract
 
@@ -107,6 +107,32 @@ def test_the_legacy_trace_is_served_from_storage(tmp_path: Path) -> None:
         assert _json(client, TRACE) == seeded
     with TestClient(create_app(seed_demo=False)) as client:
         assert client.get(TRACE).status_code == 404
+
+
+@pytest.mark.parametrize("crash_at", [1, 4, 10])
+def test_an_interrupted_first_start_is_completed_by_the_next_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, crash_at: int
+) -> None:
+    with TestClient(create_app()) as client:
+        reference = _json(client, TRACE)
+    url = _file_url(tmp_path / "asca.db")
+    original = SqlAlchemyProvenanceRepository.append
+    calls: list[int] = []
+
+    def crashing_append(self: SqlAlchemyProvenanceRepository, *args: Any) -> int:
+        calls.append(1)
+        if len(calls) == crash_at:
+            raise KeyboardInterrupt
+        return original(self, *args)
+
+    monkeypatch.setattr(SqlAlchemyProvenanceRepository, "append", crashing_append)
+    with pytest.raises(KeyboardInterrupt):
+        create_app(url)
+    monkeypatch.setattr(SqlAlchemyProvenanceRepository, "append", original)
+
+    with TestClient(create_app(url)) as client:
+        assert _revisions(client) == {DEMO_PROJECT_ID: 19}
+        assert _json(client, TRACE) == reference
 
 
 def test_create_app_without_arguments_creates_no_file(

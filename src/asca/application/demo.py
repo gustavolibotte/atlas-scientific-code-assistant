@@ -4,12 +4,17 @@ Never use synthetic records as scientific or collaboration evidence.
 """
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import UTC, datetime
 from types import MappingProxyType
 
-from asca.application.errors import DuplicateProjectError
-from asca.application.ports import ProvenanceRepository
+from asca.application.errors import (
+    ConcurrentModificationError,
+    DuplicateProjectError,
+    ProjectNotFoundError,
+)
+from asca.application.ports import ProjectSummary, ProvenanceRepository
 from asca.application.provenance import (
     DecisionDraft,
     ProvenanceService,
@@ -29,7 +34,10 @@ from asca.domain.provenance import (
     LocatorPart,
     PersistentIdentifier,
     PidScheme,
+    Project,
     ProjectId,
+    ProvenanceGraph,
+    ProvenanceRecord,
     SourceAuthority,
     Stance,
     SupersessionDimension,
@@ -96,17 +104,93 @@ SYNTHETIC_SOURCE_TEXTS: Mapping[str, str] = MappingProxyType(
 _FICTIONAL_ACCESS = "Fictional access condition for demonstration; no real document is restricted."
 
 
+class DemoSeedError(RuntimeError):
+    """The stored project with the demonstration id is not a prefix of the demo."""
+
+    def __init__(self) -> None:
+        super().__init__("stored demonstration project does not match the synthetic demo")
+
+
+class _StagingRepository:
+    """Records the demo in memory: every revision's graph and the batch that made it."""
+
+    def __init__(self) -> None:
+        self.graphs: list[ProvenanceGraph] = []
+        self.batches: list[tuple[ProvenanceRecord, ...]] = []
+
+    def create_project(self, project: Project) -> None:
+        self.graphs = [ProvenanceGraph.empty(project)]
+
+    def list_projects(self) -> list[ProjectSummary]:
+        return [ProjectSummary(self.graphs[-1].project, self.graphs[-1].revision)]
+
+    def load(self, project_id: ProjectId) -> ProvenanceGraph:
+        return self.graphs[-1]
+
+    def append(
+        self,
+        project_id: ProjectId,
+        expected_revision: int,
+        records: Sequence[ProvenanceRecord],
+    ) -> int:
+        graph = self.graphs[-1].append(records)
+        self.graphs.append(graph)
+        self.batches.append(tuple(records))
+        return graph.revision
+
+
+def _load_or_none(repository: ProvenanceRepository) -> ProvenanceGraph | None:
+    try:
+        return repository.load(DEMO_PROJECT_ID)
+    except ProjectNotFoundError:
+        return None
+
+
 def seed_synthetic_demo(repository: ProvenanceRepository) -> ProjectId:
-    """Store the synthetic demonstration project once. The call order fixes the ids."""
-    if any(item.project.id == DEMO_PROJECT_ID for item in repository.list_projects()):
-        return DEMO_PROJECT_ID
+    """Store the synthetic demonstration project, completing an interrupted seed.
+
+    The demo is first recorded in memory, revision by revision. The stored project is
+    then brought to the final revision by appending the missing batches, so a seed
+    interrupted after any committed step is resumed on the next start, and concurrent
+    seeders converge (a lost compare-and-set reloads and continues). A stored project
+    with the demo id that is not exactly a prefix of the demo raises ``DemoSeedError``.
+    """
+    staging = _StagingRepository()
+    _record_demo(staging)
+    final = staging.graphs[-1]
+    # Every pass creates the project or advances its revision (ours or a rival's), so a
+    # consistent repository finishes within the creation, each batch and a last check.
+    for _ in range(final.revision + 3):
+        stored = _load_or_none(repository)
+        if stored is None:
+            # A concurrent seeder may have created it: reload and continue from there.
+            with suppress(DuplicateProjectError):
+                repository.create_project(final.project)
+            continue
+        if stored.revision >= final.revision:
+            if not _contains(stored, final):
+                raise DemoSeedError()
+            return DEMO_PROJECT_ID
+        if stored != staging.graphs[stored.revision]:
+            raise DemoSeedError()
+        # A concurrent seeder may have appended this step: reload and continue.
+        with suppress(ConcurrentModificationError):
+            repository.append(DEMO_PROJECT_ID, stored.revision, staging.batches[stored.revision])
+    raise DemoSeedError()
+
+
+def _contains(stored: ProvenanceGraph, expected: ProvenanceGraph) -> bool:
+    return stored.project == expected.project and all(
+        stored.find(type(record), record.id) == record for record in expected.records()
+    )
+
+
+def _record_demo(repository: ProvenanceRepository) -> ProjectId:
+    """Record the demo through the service. The call order fixes the ids."""
     service = ProvenanceService(
         repository, FixedClock(DEMO_TIME), DeterministicIdFactory(DEMO_NAMESPACE)
     )
-    try:
-        project = service.create_project("Synthetic demonstration project", is_synthetic=True)
-    except DuplicateProjectError:
-        return DEMO_PROJECT_ID
+    project = service.create_project("Synthetic demonstration project", is_synthetic=True)
     texts = SYNTHETIC_SOURCE_TEXTS
 
     note = service.register_source(

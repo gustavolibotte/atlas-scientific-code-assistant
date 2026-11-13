@@ -505,6 +505,69 @@ def test_approval_rules_see_earlier_records_in_the_same_batch(
     assert _rule(lambda: graph.append([dangling])) == "G.dangling"
 
 
+def test_same_batch_approval_checks_use_the_earlier_records(
+    complete: tuple[ProvenanceGraph, CompleteProject],
+) -> None:
+    graph, names = complete
+    unsupported = _decision(graph, 24)
+    staged = graph.append([unsupported])
+    approval = _approval(staged, unsupported.id, n=24)
+    assert _rule(lambda: graph.append([unsupported, approval])) == ("T.approval.requires_support")
+
+    conflicting = _decision(graph, 25)
+    links = [
+        _link(graph, conflicting.id, names.journal_claim, Stance.SUPPORTS, 25),
+        _link(graph, conflicting.id, names.implementation_claim, Stance.CONTRADICTS, 26),
+    ]
+    staged = graph.append([conflicting, *links])
+    unresolved = _approval(staged, conflicting.id, n=25)
+    assert _rule(lambda: graph.append([conflicting, *links, unresolved])) == (
+        "T.approval.conflict_resolution"
+    )
+
+
+def test_an_approval_before_its_decision_in_the_batch_is_refused(
+    complete: tuple[ProvenanceGraph, CompleteProject],
+) -> None:
+    graph, names = complete
+    conflicting = _decision(graph, 26)
+    links = [
+        _link(graph, conflicting.id, names.journal_claim, Stance.SUPPORTS, 27),
+        _link(graph, conflicting.id, names.implementation_claim, Stance.CONTRADICTS, 28),
+    ]
+    staged = graph.append([conflicting, *links])
+    unresolved = _approval(staged, conflicting.id, n=26)
+    assert _rule(lambda: graph.append([unresolved, conflicting, *links])) == (
+        "T.approval.decision_first"
+    )
+    assert _rule(lambda: graph.append([conflicting, unresolved, *links])) == (
+        "T.approval.fingerprint"
+    )
+    unsupported = _decision(graph, 27)
+    early = _approval(graph.append([unsupported]), unsupported.id, n=27)
+    assert _rule(lambda: graph.append([early, unsupported])) == "T.approval.decision_first"
+
+
+def test_batch_order_of_approvals_must_follow_their_sequence(
+    complete: tuple[ProvenanceGraph, CompleteProject],
+) -> None:
+    graph, names = complete
+    decision = _decision(graph, 28)
+    link = _link(graph, decision.id, names.journal_claim, Stance.SUPPORTS, 29)
+    staged = graph.append([decision, link])
+    rejection = _approval(staged, decision.id, ApprovalVerdict.REJECTED, n=28)
+    approval = replace(_approval(staged, decision.id, n=29), sequence=2)
+    assert _rule(lambda: staged.append([approval, rejection])) == "T.approval.sequence"
+    assert _rule(lambda: graph.append([decision, link, approval, rejection])) == (
+        "T.approval.sequence"
+    )
+    assert _rule(lambda: staged.append([rejection, approval])) == "T.approval.after_rejection"
+    skipped = replace(_approval(staged, decision.id, n=30), sequence=3)
+    assert _rule(lambda: staged.append([skipped])) == "T.approval.sequence"
+    rejected = staged.append([rejection])
+    assert derive_status(rejected, decision.id).status is DecisionStatus.REJECTED
+
+
 def test_superseded_decisions_are_frozen(complete: tuple[ProvenanceGraph, CompleteProject]) -> None:
     graph, names = complete
     records = [

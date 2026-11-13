@@ -27,11 +27,20 @@ async def _integrity_error(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": "Provenance store integrity error"})
 
 
+#: Fixed ``msg`` of every validation error. The OpenAPI ``ValidationError`` schema
+#: requires the field; driver messages can quote the input, so none is passed on.
+VALIDATION_ERROR_MESSAGE = "Invalid value"
+
+
 async def _invalid_request(request: Request, exc: Exception) -> JSONResponse:
     """Report where and why a request is invalid, never the rejected value itself."""
     errors = exc.errors() if isinstance(exc, RequestValidationError) else []
     detail = [
-        {"loc": [str(part) for part in error.get("loc", ())], "type": str(error.get("type", ""))}
+        {
+            "loc": [str(part) for part in error.get("loc", ())],
+            "msg": VALIDATION_ERROR_MESSAGE,
+            "type": str(error.get("type", "")),
+        }
         for error in errors
     ]
     return JSONResponse(status_code=422, content={"detail": detail})

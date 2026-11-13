@@ -97,6 +97,22 @@ def test_record_rows_cannot_be_updated(
     assert before > 0
     with pytest.raises(sa.exc.DBAPIError, match="append-only"):
         _execute(store, f"UPDATE {table} SET added_in_revision = added_in_revision + 1")
+    with store.engine.connect() as conn:
+        columns = [row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")]
+    assert "project_id" in columns and len(columns) > 2
+    # Every column is protected, not only the one probed above: a trigger narrowed to
+    # ``UPDATE OF <column>`` would let content columns (quote, verdict, hashes) change.
+    for column in columns:
+        with pytest.raises(sa.exc.DBAPIError, match="append-only"):
+            _execute(store, f"UPDATE {table} SET {column} = {column}")
+    with store.engine.connect() as conn:
+        triggers = conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = :table",
+            {"table": table},
+        ).scalars()
+        update_triggers = [sql for sql in triggers if " UPDATE" in sql.upper()]
+    assert update_triggers
+    assert not any("UPDATE OF" in sql.upper() for sql in update_triggers)
     assert _count(store, table) == before
 
 

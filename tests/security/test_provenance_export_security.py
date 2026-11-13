@@ -402,3 +402,78 @@ def test_withheld_tests_are_removed_from_runs_and_supersession_reasons_are_repla
         for notice in version["superseded_by"]
     ]
     assert reasons == [f"Reason {fixture.restricted_markers[2]}"]
+
+
+@pytest.mark.parametrize("order", ["public_first", "restricted_first"])
+def test_a_test_verifying_public_and_restricted_decisions_follows_the_restricted_one(
+    order: str,
+) -> None:
+    marker = "RESMARKMIXEDTEST"
+    service = make_service()
+    pid = service.create_project("Fixture mixed test project", is_synthetic=False)
+    public_claim = _secret_claim(
+        service,
+        pid,
+        slug="mixed-public",
+        marker="PUBLICFIXTURE",
+        access=AccessClass.PUBLIC,
+        authority=SourceAuthority.WORKING_MATERIAL,
+    )
+    restricted_claim = _secret_claim(
+        service,
+        pid,
+        slug="mixed-restricted",
+        marker=f"{marker}CLAIM",
+        access=AccessClass.RESTRICTED,
+        authority=SourceAuthority.WORKING_MATERIAL,
+    )
+    public_decision = _secret_decision(service, pid, "PUBLICFIXTURE", public_claim, Stance.SUPPORTS)
+    restricted_decision = _secret_decision(
+        service, pid, f"{marker}DECISION", restricted_claim, Stance.SUPPORTS
+    )
+    test = service.register_test_case(
+        pid,
+        node_id=f"tests/test_fixture.py::test_{marker.lower()}",
+        kind=TestKind.NUMERICAL,
+        description=f"Test {marker}",
+    )
+    decisions = [public_decision, restricted_decision]
+    if order == "restricted_first":
+        decisions.reverse()
+    for decision in decisions:
+        service.link_verification(pid, test, decision_id=decision)
+    revision = service.record_workspace_revision(
+        pid, vcs_ref=None, symbols=(), symbols_indexed=False
+    )
+    moment = datetime(2026, 11, 12, tzinfo=UTC)
+    service.record_validation_run(
+        pid,
+        RunDraft(
+            revision_id=revision.revision_id,
+            environment=EnvironmentDraft("3.12.0", "CPython", "linux", ()),
+            origin=RunOrigin.EXECUTED,
+            started_at=moment,
+            finished_at=moment,
+            results=(TestResult(test, TestOutcome.FAILED, 0.5, f"Failure {marker}"),),
+        ),
+    )
+    graph = service.load(pid)
+    for audience in (AccessClass.PUBLIC, AccessClass.INTERNAL):
+        report = build_export(
+            graph, ExportArtifact.VALIDATION_REPORT, audience=audience, generator_version="t"
+        )
+        assert {"kind": "test_case", "id": test, "access_class": "restricted"} in report["withheld"]  # type: ignore[operator]
+        assert report["test_cases"] == []
+        data = b"".join(_bytes(graph, audience).values())
+        assert marker.lower().encode() not in data
+        assert marker.encode() not in data
+    full = canonical_json(
+        build_export(
+            graph,
+            ExportArtifact.VALIDATION_REPORT,
+            audience=AccessClass.RESTRICTED,
+            generator_version="t",
+        )
+    )
+    assert f"Test {marker}".encode() in full
+    assert f"test_{marker.lower()}".encode() in full

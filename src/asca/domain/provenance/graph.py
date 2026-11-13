@@ -185,7 +185,7 @@ class ProvenanceGraph:
         for position, record in enumerate(batch):
             if type(record) not in RECORD_FIELDS:
                 raise _fail("G.record_type", f"record {position} is not a provenance record")
-            self._check_transition(record, batch[:position])
+            self._check_transition(record, batch[:position], batch[position + 1 :])
         return self._with(batch, self.revision + 1)
 
     # ------------------------------------------------------------------ lookups
@@ -465,22 +465,16 @@ class ProvenanceGraph:
     # ------------------------------------------------------------------ transition rules
 
     def _check_transition(
-        self, record: ProvenanceRecord, earlier: Sequence[ProvenanceRecord]
+        self,
+        record: ProvenanceRecord,
+        earlier: Sequence[ProvenanceRecord],
+        later: Sequence[ProvenanceRecord],
     ) -> None:
         decision_id: str | None = None
         if isinstance(record, EvidenceLink | ImplementationLink | Approval | VerificationLink):
             decision_id = record.decision_id
         if isinstance(record, Approval):
-            verdicts = [
-                (item.sequence, item.verdict)
-                for item in (*self.approvals, *earlier)
-                if isinstance(item, Approval) and item.decision_id == record.decision_id
-            ]
-            if verdicts and max(verdicts)[1] is ApprovalVerdict.REJECTED:
-                raise _fail(
-                    "T.approval.after_rejection",
-                    f"decision {record.decision_id} was rejected; supersede it instead",
-                )
+            _check_approval_order(self, record, earlier, later)
         if decision_id is not None and any(
             isinstance(item, ScientificDecision) and item.supersedes_id == decision_id
             for item in (*self.decisions, *earlier)
@@ -490,6 +484,48 @@ class ProvenanceGraph:
             interim = self._with(earlier, self.revision) if earlier else self
             if interim.find(ScientificDecision, record.decision_id) is not None:
                 _check_approval(interim, record)
+
+
+def _check_approval_order(
+    graph: ProvenanceGraph,
+    approval: Approval,
+    earlier: Sequence[ProvenanceRecord],
+    later: Sequence[ProvenanceRecord],
+) -> None:
+    """Make approval rules see the approval's real predecessors.
+
+    The decision must come before the approval (in the graph or earlier in the batch),
+    and batch order must follow sequence order, so that the rejection and support
+    checks look at every earlier approval and at the decision's evidence.
+    """
+    decision_id = approval.decision_id
+    known = graph.find(ScientificDecision, decision_id) is not None or any(
+        isinstance(item, ScientificDecision) and item.id == decision_id for item in earlier
+    )
+    if not known:
+        if any(isinstance(item, ScientificDecision) and item.id == decision_id for item in later):
+            raise _fail(
+                "T.approval.decision_first",
+                f"approval {approval.id} precedes decision {decision_id} in the batch",
+            )
+        return  # a dangling approval is reported as G.dangling on the resulting graph
+    previous = [
+        item
+        for item in (*graph.approvals, *earlier)
+        if isinstance(item, Approval) and item.decision_id == decision_id
+    ]
+    if approval.sequence != len(previous) + 1:
+        raise _fail(
+            "T.approval.sequence",
+            f"approval {approval.id} is not the next approval of {decision_id}",
+        )
+    if previous and max(previous, key=lambda item: item.sequence).verdict is (
+        ApprovalVerdict.REJECTED
+    ):
+        raise _fail(
+            "T.approval.after_rejection",
+            f"decision {decision_id} was rejected; supersede it instead",
+        )
 
 
 def _check_approval(graph: ProvenanceGraph, approval: Approval) -> None:

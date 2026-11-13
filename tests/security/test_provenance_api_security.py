@@ -182,4 +182,5 @@ def test_validation_errors_never_echo_the_rejected_value(client: TestClient, pat
     detail = response.json()["detail"]
     assert detail
     for error in detail:
-        assert set(error) == {"loc", "type"}
+        assert set(error) == {"loc", "msg", "type"}
+        assert error["msg"] == "Invalid value"

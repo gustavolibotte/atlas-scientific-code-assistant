@@ -45,8 +45,14 @@ assumptions), `CodeSymbol`, `TestCase`, `ValidationRun`, `Approval`,
 
 - `tests/unit/test_provenance_status.py::test_exhaustive_status_table`
 - `tests/unit/test_provenance_status.py::test_status_soundness_over_valid_graphs` (property)
+- `tests/unit/test_provenance_status.py::test_valid_graphs_reach_every_interesting_status`
+  (the strategy behind the properties generates supported, conflicting, approved and
+  rejected decisions)
 - `tests/unit/test_provenance_status.py::test_mismatch_after_approval_makes_it_stale_and_unsupported`
 - `tests/unit/test_provenance_graph.py::test_transition_rules_for_approvals`
+- `tests/unit/test_provenance_graph.py::test_same_batch_approval_checks_use_the_earlier_records`
+- `tests/unit/test_provenance_graph.py::test_an_approval_before_its_decision_in_the_batch_is_refused`
+- `tests/unit/test_provenance_graph.py::test_batch_order_of_approvals_must_follow_their_sequence`
 - `tests/unit/test_provenance_graph.py::test_synthetic_projects_cannot_have_approvals`
 - `tests/contract/test_export_schemas.py::test_approved_decision_without_reviews_is_rejected`
 - `tests/contract/test_export_schemas.py::test_stale_approved_decision_is_rejected`
@@ -76,6 +82,9 @@ assumptions), `CodeSymbol`, `TestCase`, `ValidationRun`, `Approval`,
 - `tests/contract/test_provenance_state_machine.py::TestPersistenceParity` (stateful property)
 - `tests/contract/test_provenance_persistence.py::test_second_writer_on_a_stale_revision_is_refused`
 - `tests/contract/test_provenance_persistence.py::test_constraint_violation_rolls_back_the_whole_append`
+- `tests/contract/test_provenance_persistence.py::test_seeded_demo_loads_identically_from_sqlite_and_memory`
+- `tests/contract/test_provenance_persistence.py::test_concurrent_loads_on_the_shared_in_memory_store_return_the_stored_graph`
+- `tests/contract/test_provenance_persistence.py::test_concurrent_first_start_on_a_fresh_file_migrates_once`
 - `tests/contract/test_provenance_migrations.py::test_upgraded_schema_matches_the_orm_metadata`
 - `tests/contract/test_provenance_migrations.py::test_downgrade_to_base_leaves_only_the_version_table_and_upgrade_works_again`
 - `tests/contract/test_provenance_migrations.py::test_there_is_exactly_one_head_and_revision_ids_are_four_digits`
@@ -134,6 +143,9 @@ assumptions), `CodeSymbol`, `TestCase`, `ValidationRun`, `Approval`,
 - `tests/contract/test_provenance_api_persistence.py::test_default_environment_database_lives_in_a_private_local_directory`
 - `tests/contract/test_provenance_api_persistence.py::test_unsupported_environment_url_is_refused_without_side_effects`
 - `tests/contract/test_provenance_api_persistence.py::test_application_shutdown_disposes_the_store`
+- `tests/contract/test_provenance_api_persistence.py::test_an_interrupted_first_start_is_completed_by_the_next_start`
+- `tests/unit/test_provenance_demo.py::test_concurrent_seeders_converge_on_the_complete_demo`
+- `tests/unit/test_provenance_demo.py::test_a_foreign_project_with_the_demo_id_fails_loudly`
 
 ### Security boundary of the new routes
 
@@ -145,6 +157,9 @@ assumptions), `CodeSymbol`, `TestCase`, `ValidationRun`, `Approval`,
 - `tests/security/test_provenance_api_security.py::test_integrity_errors_are_generic_500s`
 - `tests/security/test_provenance_api_security.py::test_untrusted_cors_origin_is_not_allowed`
 - `tests/security/test_provenance_api_security.py::test_security_headers_on_inspection_and_export_responses`
+- `tests/security/test_provenance_api_security.py::test_validation_errors_never_echo_the_rejected_value`
+- `tests/contract/test_provenance_api.py::test_validation_errors_match_the_published_openapi_schema`
+- `tests/security/test_provenance_export_security.py::test_a_test_verifying_public_and_restricted_decisions_follows_the_restricted_one`
 
 ## Quality gates
 

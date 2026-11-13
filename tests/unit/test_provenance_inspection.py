@@ -38,6 +38,7 @@ from asca.domain.provenance import (
     Stance,
     SupersessionDimension,
     SymbolKind,
+    TestKind,
     TestOutcome,
     TestResult,
     make_id,
@@ -154,6 +155,29 @@ def test_links_on_the_same_key_are_gathered_across_revisions(
     assert inspection.symbol.id == rev2_estimate.id
 
 
+def test_symbol_tests_on_the_same_key_are_gathered_across_revisions() -> None:
+    service, graph, names = _complete()
+    rev2_estimate = next(
+        item
+        for item in names.revision2_symbols
+        if graph.get(CodeSymbol, item).qualified_name == "estimate_amplitude"
+    )
+    before = inspect_function(graph, rev2_estimate)
+    assert before.direct_tests == ()
+    test = service.register_test_case(
+        names.project,
+        node_id="tests/test_estimators.py::test_amplitude_symbol",
+        kind=TestKind.UNIT,
+        description="Symbol-level test linked on the first revision.",
+    )
+    service.link_verification(names.project, test, symbol_id=names.symbol_current)
+    graph = service.load(names.project)
+    for symbol_id in (names.symbol_current, rev2_estimate):
+        inspection = inspect_function(graph, symbol_id)
+        assert [view.test_case.id for view in inspection.direct_tests] == [test]
+        assert W.TEST_NOT_RUN in inspection.warnings
+
+
 def test_links_from_several_revisions_are_ordered_by_decision() -> None:
     service, graph, names = _complete()
     rev2_estimate = next(
@@ -206,6 +230,60 @@ def test_evidence_ordering_puts_supports_before_contradicts_before_context(
         names.internal_claim,
         names.implementation_claim,
     ]
+
+
+def test_evidence_is_ordered_by_stance_before_creation_time() -> None:
+    service, _, names = _complete()
+    pid = names.project
+    decision = service.propose_decision(
+        pid, DecisionDraft(title="Ordering", statement="Fixture.", rationale="Fixture.")
+    )
+    created = [
+        service.link_evidence(pid, decision, claim, stance)
+        for claim, stance in (
+            (names.working_claim, Stance.CONTEXT),
+            (names.implementation_claim, Stance.CONTRADICTS),
+            (names.internal_claim, Stance.CONTEXT),
+            (names.journal_claim, Stance.SUPPORTS),
+        )
+    ]
+    service.link_implementation(pid, decision, names.symbol_current)
+    graph = service.load(pid)
+    view = next(
+        item
+        for item in inspect_function(graph, names.symbol_current).decisions
+        if item.decision.id == decision
+    )
+    assert [item.link.id for item in view.evidence] == [
+        created[3],
+        created[1],
+        created[0],
+        created[2],
+    ]
+
+
+def test_decisions_are_ordered_by_decision_creation_not_link_id() -> None:
+    service, _, names = _complete()
+    pid = names.project
+    decisions = [
+        service.propose_decision(
+            pid, DecisionDraft(title=f"Ordering {n}", statement="Fixture.", rationale="Fixture.")
+        )
+        for n in range(4)
+    ]
+    # Links are created in reverse decision order, so link order is not decision order.
+    links = {
+        decision: service.link_implementation(pid, decision, names.symbol_current)
+        for decision in reversed(decisions)
+    }
+    graph = service.load(pid)
+    shown = [
+        view.decision.id
+        for view in inspect_function(graph, names.symbol_current).decisions
+        if view.decision.id in links
+    ]
+    assert shown == decisions
+    assert sorted(links, key=lambda decision: links[decision]) != decisions
 
 
 def test_counts_as_support_is_false_for_automated_inference_and_context(
@@ -279,6 +357,60 @@ def test_test_failing_and_outdated_warnings_appear(
         W.AUTOMATED_INFERENCE_IGNORED,
         W.LINK_MOVED,
     )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "failing"),
+    [
+        (TestOutcome.FAILED, True),
+        (TestOutcome.ERROR, True),
+        (TestOutcome.PASSED, False),
+        (TestOutcome.SKIPPED, False),
+        (TestOutcome.XFAILED, False),
+        (TestOutcome.XPASSED, False),
+    ],
+)
+def test_test_failing_follows_the_latest_outcome(outcome: TestOutcome, failing: bool) -> None:
+    service, _, names = _complete()
+    service.record_validation_run(
+        names.project,
+        RunDraft(
+            revision_id=names.revision2,
+            environment=ENVIRONMENT,
+            origin=RunOrigin.EXECUTED,
+            started_at=DEMO_TIME + timedelta(hours=3),
+            finished_at=DEMO_TIME + timedelta(hours=3, minutes=5),
+            results=(TestResult(names.test_regression, outcome, 1.0, None),),
+        ),
+    )
+    db = inspect_function(service.load(names.project), names.symbol_stale).decisions[0]
+    assert db.tests[0].latest_result is not None
+    assert db.tests[0].latest_result.outcome is outcome
+    assert (W.TEST_FAILING in db.warnings) is failing
+
+
+def test_latest_run_is_the_one_that_finished_last() -> None:
+    """A long failing run that started first but finished last is the latest result."""
+    service, _, names = _complete()
+    for start, end, outcome in (
+        (timedelta(hours=3), timedelta(hours=6), TestOutcome.FAILED),
+        (timedelta(hours=4), timedelta(hours=5), TestOutcome.PASSED),
+    ):
+        service.record_validation_run(
+            names.project,
+            RunDraft(
+                revision_id=names.revision2,
+                environment=ENVIRONMENT,
+                origin=RunOrigin.EXECUTED,
+                started_at=DEMO_TIME + start,
+                finished_at=DEMO_TIME + end,
+                results=(TestResult(names.test_regression, outcome, 1.0, None),),
+            ),
+        )
+    db = inspect_function(service.load(names.project), names.symbol_stale).decisions[0]
+    latest = db.tests[0].latest_result
+    assert latest is not None and latest.outcome is TestOutcome.FAILED
+    assert W.TEST_FAILING in db.warnings
 
 
 def test_status_derived_warnings_for_rejected_and_approved_decisions(

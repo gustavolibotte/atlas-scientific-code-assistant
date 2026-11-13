@@ -13,6 +13,7 @@ from provenance_builders import CompleteProject, build_complete_real_project, ma
 from asca.application.demo import (
     DEMO_NAMESPACE,
     DEMO_PROJECT_ID,
+    DEMO_TIME,
     deterministic_id,
     seed_synthetic_demo,
 )
@@ -29,6 +30,7 @@ from asca.domain.provenance import (
     RECORD_FIELDS,
     SYNTHETIC_NOTICE,
     AccessClass,
+    CodeSymbol,
     IdKind,
     PersistentIdentifier,
     PidScheme,
@@ -364,6 +366,78 @@ def test_complete_project_decision_records() -> None:
         names.symbol_moved: "moved",
         names.symbol_orphaned: "orphaned",
     }
+
+
+def test_a_stale_approval_is_exported_as_not_current() -> None:
+    service = make_service()
+    names = build_complete_real_project(service)
+    service.mark_claim_unavailable(names.project, names.journal_claim, reason="Fixture outage.")
+    graph = service.load(names.project)
+    records = _export(graph, ExportArtifact.DECISION_RECORDS, AccessClass.RESTRICTED)
+    by_id = {item["id"]: item for item in records["decisions"]}
+    da = by_id[names.da]
+    assert da["status"] == "unsupported"
+    assert da["approval_stale"] is True
+    assert [(item["id"], item["is_current"]) for item in da["reviews"]] == [
+        (names.approval_da, False)
+    ]
+    for decision in records["decisions"]:
+        current = [item["id"] for item in decision["reviews"] if item["is_current"]]
+        assert len(current) <= 1
+        if decision["approval_stale"]:
+            assert current == []
+
+
+def test_export_orderings_follow_time_not_id() -> None:
+    """Claims by (recorded_at, id), runs by (finished_at, id), implementations by revision.
+
+    The step clock gives every record its own instant, so time order differs from id
+    order and an id-ordered export would fail these checks.
+    """
+    service = make_service()
+    names = build_complete_real_project(service)
+    graph = service.load(names.project)
+    # Two short runs on revision 1 that finish before the fixture's runs.
+    extra_runs = [
+        service.record_validation_run(
+            names.project,
+            RunDraft(
+                revision_id=names.revision1,
+                environment=EnvironmentDraft("3.12.3", "CPython", "Linux-x86_64", ()),
+                origin=RunOrigin.EXECUTED,
+                started_at=DEMO_TIME + timedelta(minutes=minutes),
+                finished_at=DEMO_TIME + timedelta(minutes=minutes + 1),
+                results=(TestResult(names.test_unit, TestOutcome.PASSED, None, None),),
+            ),
+        )
+        for minutes in (20, 10)
+    ]
+    rev2_symbol = next(
+        item
+        for item in names.revision2_symbols
+        if graph.get(CodeSymbol, item).qualified_name == "estimate_amplitude"
+    )
+    later_link = service.link_implementation(names.project, names.df, rev2_symbol)
+    graph = service.load(names.project)
+
+    manifest = _export(graph, ExportArtifact.EVIDENCE_MANIFEST, AccessClass.RESTRICTED)
+    claim_ids = [item["id"] for item in manifest["claims"]]
+    by_time = [
+        item.id for item in sorted(graph.claims, key=lambda item: (item.recorded_at, item.id))
+    ]
+    assert claim_ids == by_time
+    assert claim_ids != sorted(claim_ids)
+
+    report = _export(graph, ExportArtifact.VALIDATION_REPORT, AccessClass.RESTRICTED)
+    run_ids = [item["id"] for item in report["runs"]]
+    assert run_ids == [extra_runs[1], extra_runs[0], names.run1, names.run2]
+    assert run_ids != sorted(run_ids)
+
+    records = _export(graph, ExportArtifact.DECISION_RECORDS, AccessClass.RESTRICTED)
+    df = next(item for item in records["decisions"] if item["id"] == names.df)
+    assert [(item["link_id"], item["revision_sequence"]) for item in df["implemented_by"]] == [
+        (later_link, 2)
+    ]
 
 
 def test_complete_project_validation_report() -> None:

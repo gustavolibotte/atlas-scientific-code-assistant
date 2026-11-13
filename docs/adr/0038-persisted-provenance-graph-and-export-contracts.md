@@ -31,7 +31,10 @@ project.
 - **State invariants** (G rules) run in the graph constructor, so they are checked on
   every load from storage, not only on writes.
 - **Transition rules** (T rules) run only in `ProvenanceGraph.append`, against the base
-  graph plus the earlier records of the same batch.
+  graph plus the earlier records of the same batch. So that approval rules always see
+  an approval's real predecessors, an approval must come after its decision in the
+  batch (`T.approval.decision_first`) and must carry the next sequence number of its
+  decision at its batch position (`T.approval.sequence`): batch order is sequence order.
 - The application `ProvenanceService` only writes and loads. Inspection
   (`asca.application.inspection`) and export (`asca.application.exports`) are pure
   functions over a loaded graph.
@@ -115,8 +118,10 @@ not be performed is recorded as `unavailable` with a reason.
     audience may not see the superseding version; the opaque version id remains.
 - A test whose latest run is synthetic counts as `not_run` in the report summary, as in
   the inspector and legacy trace: a synthetic run is not an execution.
-- Request validation errors (HTTP 422) report only `loc` and `type`, never the rejected
-  value, so malformed ids or audiences are not reflected back.
+- Request validation errors (HTTP 422) report only `loc`, `type` and a fixed `msg`
+  (`"Invalid value"`), never the rejected value, so malformed ids or audiences are not
+  reflected back. The fixed `msg` keeps the bodies valid against the published OpenAPI
+  `ValidationError` schema, which requires it.
 - In local single-user mode the inspection API returns every access class. The route
   carries `# M10: filter by viewer before any non-loopback deployment`.
 
@@ -136,11 +141,19 @@ project-scoped and content-addressed: the hashed content includes the `project_i
   ids=None)` builds the store eagerly, migrates it to head, seeds the synthetic
   demonstration project idempotently and never reads environment variables. The default
   in-memory database touches no file. The lifespan only disposes the engine.
+- Seeding records the demo in memory first, then brings the stored project to the
+  final revision by appending only the missing batches. A seed interrupted after any
+  committed step is completed on the next start, and concurrent seeders converge (a lost
+  compare-and-set reloads and continues). A stored project with the demo id that is not
+  exactly a prefix of the demo fails startup with `DemoSeedError`.
 - `create_app_from_environment()` is the only entry point that reads
   `ASCA_DATABASE_URL` (default `sqlite+pysqlite:///./.asca/asca.db`). For a relative file
   path it creates the parent directory with mode `0o700`. `make api` uses it.
 - File databases use foreign keys, WAL and a 5 s busy timeout, and real SQLite
-  transactions so that a load reads one snapshot.
+  transactions so that a load reads one snapshot. The migration transaction takes the
+  write lock up front (`BEGIN IMMEDIATE`), and the switch to WAL is retried while
+  another connection performs it, so several processes can start on a fresh file at
+  once: one migrates, the others wait and find the head.
 - Migrations are handwritten (no autogenerate, no `create_all` in production paths) and
   run programmatically on startup from the packaged `migrations` directory.
 - **Policy:** migrations are immutable after merge; revision ids are 4-digit sequential
@@ -216,9 +229,11 @@ operations stop appearing as `APIRoute` entries.
   recomputation on every read, which is acceptable for per-project graphs of M1 size.
 - Every load revalidates the whole graph, so a tampered or drifted database fails loudly
   (`StoredGraphIntegrityError`) instead of serving wrong provenance.
-- The default in-memory store is one shared SQLite connection (`StaticPool`); concurrent
-  requests share it without isolation. It is meant for tests and ephemeral runs; local
-  use goes through a file database.
+- The default in-memory store is one shared SQLite connection (`StaticPool`). A sqlite3
+  connection used from several threads at once interleaves cursors and returns wrong
+  rows, so the repository serializes every call on that store with a lock. Requests on
+  it therefore run one at a time. It is meant for tests and ephemeral runs; local use
+  goes through a file database.
 - Coverage measured by module name (`--cov=asca`) reports the Alembic `env.py` and the
   `0001` revision as unexecuted because Alembic imports them under its own module names;
   the migration tests do execute them.

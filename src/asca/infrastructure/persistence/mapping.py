@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, assert_never
 
 from asca.domain.provenance import (
+    RECORD_FIELDS,
     Alternative,
     Approval,
     ApprovalId,
@@ -74,24 +75,9 @@ from asca.infrastructure.persistence.orm import (
     WorkspaceRevisionRow,
 )
 
-#: Insert order by record kind; within a kind, batch order is kept.
-APPEND_ORDER: tuple[type[ProvenanceRecord], ...] = (
-    Source,
-    SourceVersion,
-    SupersessionNotice,
-    Claim,
-    ClaimCheck,
-    ScientificDecision,
-    EvidenceLink,
-    WorkspaceRevision,
-    CodeSymbol,
-    ImplementationLink,
-    TestCase,
-    VerificationLink,
-    EnvironmentSnapshot,
-    ValidationRun,
-    Approval,
-)
+#: Every record kind, from the domain registry. Insert order across tables comes from
+#: ``orm.RECORD_ROW_TYPES``; within a table, batch order is kept.
+_RECORD_KINDS: tuple[type[object], ...] = tuple(RECORD_FIELDS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +138,7 @@ def project_to_row(project: Project) -> ProjectRow:
 
 def record_to_rows(record: ProvenanceRecord, added_in_revision: int) -> list[Base]:
     """Rows for one record; a validation run yields its run row and one row per result."""
-    if not isinstance(record, APPEND_ORDER):
+    if not isinstance(record, _RECORD_KINDS):
         raise TypeError("not a provenance record")
     common: dict[str, Any] = {
         "project_id": record.project_id,

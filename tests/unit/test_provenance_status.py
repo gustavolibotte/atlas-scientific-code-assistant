@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import Phase, find, given, settings
 from hypothesis import strategies as st
 from provenance_builders import (
     CompleteProject,
@@ -359,6 +359,44 @@ def _links_to(graph: ProvenanceGraph, claim: Claim, stances: list[Stance]) -> li
         )
         for n, (decision, stance) in enumerate(zip(graph.decisions, stances, strict=False))
     ]
+
+
+_REACH_SETTINGS = settings(max_examples=300, database=None, deadline=None, phases=(Phase.generate,))
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        DecisionStatus.SUPPORTED,
+        DecisionStatus.CONFLICTING,
+        DecisionStatus.APPROVED,
+        DecisionStatus.REJECTED,
+    ],
+)
+def test_valid_graphs_reach_every_interesting_status(status: DecisionStatus) -> None:
+    """The properties over ``valid_graphs()`` are only meaningful if these occur."""
+    graph = find(
+        valid_graphs(),
+        lambda graph: any(
+            derive_status(graph, decision.id).status is status for decision in graph.decisions
+        ),
+        settings=_REACH_SETTINGS,
+    )
+    assert_status_sound(graph)
+
+
+def test_valid_graphs_reach_an_approved_conflict_with_a_resolution() -> None:
+    graph = find(
+        valid_graphs(),
+        lambda graph: any(
+            approval.conflict_resolution is not None
+            and derive_status(graph, approval.decision_id).evidential_status
+            is DecisionStatus.CONFLICTING
+            for approval in graph.approvals
+        ),
+        settings=_REACH_SETTINGS,
+    )
+    assert_status_sound(graph)
 
 
 @settings(max_examples=100, deadline=None)

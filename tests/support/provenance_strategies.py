@@ -28,8 +28,10 @@ from asca.application.provenance import (
 )
 from asca.domain.provenance import (
     AccessClass,
+    Alternative,
     ApprovalVerdict,
     AssertionOrigin,
+    Assumption,
     Claim,
     ClaimId,
     DecisionId,
@@ -171,6 +173,7 @@ class MarkUnavailable:
 class ProposeDecision:
     access_floor: AccessClass
     supersedes: int | None
+    details: bool = False
 
 
 @dataclass(frozen=True)
@@ -213,6 +216,7 @@ class RecordRun:
     environment: int
     start_minutes: int
     results: tuple[tuple[int, TestOutcome], ...]
+    duration_minutes: int = 1
 
 
 @dataclass(frozen=True)
@@ -301,6 +305,7 @@ def _command_kinds(is_synthetic: bool) -> list[st.SearchStrategy[Command]]:
             ProposeDecision,
             st.sampled_from(AccessClass),
             st.one_of(st.none(), st.none(), _REF),
+            st.booleans(),
         ),
         st.builds(LinkEvidence, _REF, _REF, st.sampled_from(Stance), st.booleans()),
         st.builds(
@@ -327,17 +332,59 @@ def _command_kinds(is_synthetic: bool) -> list[st.SearchStrategy[Command]]:
             st.lists(st.tuples(_REF, st.sampled_from(TestOutcome)), min_size=1, max_size=3).map(
                 tuple
             ),
+            st.integers(0, 600),
         ),
         st.builds(Review, _REF, st.sampled_from(ApprovalVerdict), st.booleans()),
     ]
 
 
 @st.composite
+def evidence_chains(draw: st.DrawFn, is_synthetic: bool) -> tuple[Command, ...]:
+    """An optional, legal evidence chain that reaches the interesting statuses.
+
+    Random commands almost never line up a source, a version with text, an in-text
+    claim, a correct check, a decision and a supporting link. The chain does, then may
+    add a checked contradicting claim and a review, so supported, conflicting, approved
+    and rejected decisions are generated. It comes first, so its records are index 0.
+    """
+    shape = draw(st.sampled_from(["none", "supported", "conflicting"]))
+    if shape == "none":
+        return ()
+    scheme = PidScheme.SYNTHETIC if is_synthetic else draw(_REAL_SCHEMES)
+    authority = draw(
+        st.sampled_from(
+            [SourceAuthority.WORKING_MATERIAL]
+            if is_synthetic
+            else [SourceAuthority.WORKING_MATERIAL, SourceAuthority.APPROVED_INTERNAL]
+        )
+    )
+    chain: list[Command] = [
+        AddSource(scheme, draw(st.integers(0, 6))),
+        AddVersion(0, 0, authority, draw(st.sampled_from(AccessClass)), draw(st.integers(0, 6))),
+        AddClaim(0, True, False, draw(st.booleans())),
+        CheckClaim(0, True),
+        ProposeDecision(AccessClass.PUBLIC, None, draw(st.booleans())),
+        LinkEvidence(0, 0, Stance.SUPPORTS, draw(st.booleans())),
+    ]
+    if shape == "conflicting":
+        chain += [
+            AddClaim(0, True, False, False),
+            CheckClaim(1, True),
+            LinkEvidence(0, 1, Stance.CONTRADICTS, False),
+        ]
+    verdict = draw(st.sampled_from([None, ApprovalVerdict.APPROVED, ApprovalVerdict.REJECTED]))
+    if verdict is not None:
+        chain.append(Review(0, verdict, draw(st.booleans())))
+    return tuple(chain)
+
+
+@st.composite
 def command_scripts(draw: st.DrawFn, max_size: int = 20) -> Script:
-    """A creation-ordered prelude (0-2 commands per type) followed by a random tail."""
+    """An optional evidence chain, a creation-ordered prelude (0-2 commands per type)
+    and a random tail."""
     is_synthetic = draw(st.booleans())
     kinds = _command_kinds(is_synthetic)
-    commands: list[Command] = []
+    commands: list[Command] = list(draw(evidence_chains(is_synthetic)))
     for kind in kinds:
         commands.extend(draw(st.lists(kind, max_size=2)))
     commands.extend(draw(st.lists(st.one_of(kinds), max_size=max_size)))
@@ -476,6 +523,25 @@ def _apply(command: Command, service: ProvenanceService, state: ReplayResult) ->
                     rationale="Fixture rationale.",
                     access_floor=command.access_floor,
                     supersedes_id=supersedes,
+                    alternatives=(
+                        (
+                            Alternative(
+                                f"Alternative {n}",
+                                f"Fixture alternative {n}.",
+                                f"Fixture reason not chosen {n}.",
+                            ),
+                        )
+                        if command.details
+                        else ()
+                    ),
+                    assumptions=(
+                        (
+                            Assumption(f"Fixture assumption {n}.", f"Fixture justification {n}."),
+                            Assumption(f"Unjustified fixture assumption {n}.", None),
+                        )
+                        if command.details
+                        else ()
+                    ),
                 ),
             )
         )
@@ -542,7 +608,7 @@ def _apply(command: Command, service: ProvenanceService, state: ReplayResult) ->
                 environment=_environment(command.environment),
                 origin=command.origin,
                 started_at=start,
-                finished_at=start + timedelta(minutes=1),
+                finished_at=start + timedelta(minutes=command.duration_minutes),
                 results=tuple(
                     TestResult(TestCaseId(test), outcome, 0.1, None)
                     for test, outcome in results.items()

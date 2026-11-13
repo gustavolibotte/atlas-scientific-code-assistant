@@ -165,7 +165,11 @@ class PersistenceParityMachine(RuleBasedStateMachine):
 
     @initialize(synthetic=st.sampled_from([False, False, False, True]))
     def create_project(self, synthetic: bool) -> None:
-        """Create the project plus a baseline version, claim and decision on both services."""
+        """Create the project plus a baseline of checked evidence on both services.
+
+        Two checked claims and a supported decision let the random rules reach the
+        supported, conflicting, approved and rejected statuses within a short run.
+        """
         title = "Fixture machine project"
         created = self.sqlite.create_project(title, is_synthetic=synthetic)
         assert self.memory.create_project(title, is_synthetic=synthetic) == created
@@ -182,8 +186,12 @@ class PersistenceParityMachine(RuleBasedStateMachine):
             text=0,
         )
         self.add_claim(version=0, in_text=True, with_path=False)
+        self.add_claim(version=0, in_text=True, with_path=False)
+        self.check_claim(claim=0, correct=True)
+        self.check_claim(claim=1, correct=True)
         self.propose_decision(access=AccessClass.PUBLIC, supersedes=None)
-        assert self.successes == 4
+        self.link_evidence(decision=0, claim=0, stance=Stance.SUPPORTS, automated=False)
+        assert self.successes == 8
 
     @rule(n=st.integers(0, 5), git=st.booleans())
     def register_source(self, n: int, git: bool) -> None:

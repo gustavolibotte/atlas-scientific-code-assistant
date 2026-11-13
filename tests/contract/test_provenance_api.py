@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 from provenance_builders import (
     CompleteProject,
     CountingIdFactory,
@@ -368,6 +369,23 @@ def test_complete_project_test_and_review_details(
     assert rejection["is_current"] is True
 
 
+def test_a_stale_approval_is_shown_as_not_current() -> None:
+    app = create_app(clock=StepClock(), ids=CountingIdFactory())
+    service: ProvenanceService = app.state.provenance_service
+    names = build_complete_real_project(service)
+    service.mark_claim_unavailable(names.project, names.journal_claim, reason="Fixture outage.")
+    with TestClient(app) as client:
+        body = _inspection(client, names.project, names.symbol_current)
+    (decision,) = body["decisions"]
+    assert decision["id"] == names.da
+    assert decision["status"] == DecisionStatus.UNSUPPORTED.value
+    assert decision["approval_stale"] is True
+    assert "approval_stale" in decision["warnings"]
+    assert [(item["id"], item["is_current"]) for item in decision["reviews"]] == [
+        (names.approval_da, False)
+    ]
+
+
 def test_unknown_symbol_in_known_project_is_not_found(client: TestClient) -> None:
     response = client.get(f"/api/v1/projects/{DEMO_PROJECT_ID}/symbols/sym_{'0' * 32}/inspection")
     assert response.status_code == 404
@@ -431,3 +449,30 @@ def test_new_operations_are_listed_as_get_only_api_routes() -> None:
     assert not {(path, method) for path, method in operations if path in NEW_PATHS} - {
         (path, "GET") for path in NEW_PATHS
     }
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/projects/prj_x/symbols",
+        f"/api/v1/projects/{DEMO_PROJECT_ID}/symbols/sym_x/inspection",
+        f"/api/v1/projects/{DEMO_PROJECT_ID}/exports/unknown",
+        f"/api/v1/projects/{DEMO_PROJECT_ID}/exports/evidence_manifest?audience=everyone",
+    ],
+)
+def test_validation_errors_match_the_published_openapi_schema(
+    client: TestClient, path: str
+) -> None:
+    spec = client.get("/openapi.json").json()
+    response = client.get(path)
+    assert response.status_code == 422
+    validator = Draft202012Validator(
+        {"$ref": "#/components/schemas/HTTPValidationError", "components": spec["components"]}
+    )
+    errors = list(validator.iter_errors(response.json()))
+    assert errors == []
+    for name in NEW_PATHS[1:]:
+        documented = spec["paths"][name]["get"]["responses"]["422"]
+        assert documented["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/HTTPValidationError"
+        }

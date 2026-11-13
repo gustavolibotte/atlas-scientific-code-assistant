@@ -1,5 +1,8 @@
 """The synthetic demonstration project is stored, deterministic and honest."""
 
+from collections.abc import Sequence
+from dataclasses import replace
+
 import pytest
 
 from asca.application.demo import (
@@ -8,12 +11,12 @@ from asca.application.demo import (
     DEMO_PROJECT_ID,
     DEMO_TIME,
     SYNTHETIC_SOURCE_TEXTS,
+    DemoSeedError,
     DeterministicIdFactory,
     FixedClock,
     seed_synthetic_demo,
 )
-from asca.application.errors import DuplicateProjectError
-from asca.application.ports import ProjectSummary
+from asca.application.errors import DuplicateProjectError, ProjectNotFoundError
 from asca.domain.provenance import (
     AccessClass,
     Claim,
@@ -24,6 +27,7 @@ from asca.domain.provenance import (
     Project,
     ProjectId,
     ProvenanceGraph,
+    ProvenanceRecord,
     ScientificDecision,
     SourceVersion,
     StatusReason,
@@ -52,20 +56,104 @@ def test_seeding_twice_is_idempotent() -> None:
     assert repository.load(DEMO_PROJECT_ID) == graph
 
 
+_DEMO_WRITES = 20  # create_project plus one append per revision
+
+
 class _RacingRepository(InMemoryProvenanceRepository):
-    """Hides the demo from listings to simulate a concurrent seeder."""
+    """A rival seeder completes the demo just before this seeder's n-th write."""
 
-    def list_projects(self) -> list[ProjectSummary]:
-        return []
+    def __init__(self, race_at: int) -> None:
+        super().__init__()
+        self._writes = 0
+        self._race_at = race_at
+
+    def _race(self) -> None:
+        self._writes += 1
+        if self._writes == self._race_at:
+            self._race_at = 0
+            seed_synthetic_demo(self)
+
+    def create_project(self, project: Project) -> None:
+        self._race()
+        super().create_project(project)
+
+    def append(
+        self,
+        project_id: ProjectId,
+        expected_revision: int,
+        records: Sequence[ProvenanceRecord],
+    ) -> int:
+        self._race()
+        return super().append(project_id, expected_revision, records)
 
 
-def test_duplicate_project_during_seeding_counts_as_seeded() -> None:
-    repository = _RacingRepository()
-    repository.create_project(Project(DEMO_PROJECT_ID, "Seeded elsewhere", True, DEMO_TIME))
+@pytest.mark.parametrize("race_at", [1, 2, 10, _DEMO_WRITES])
+def test_concurrent_seeders_converge_on_the_complete_demo(race_at: int) -> None:
+    _, expected = _seeded()
+    repository = _RacingRepository(race_at)
     assert seed_synthetic_demo(repository) == DEMO_PROJECT_ID
-    assert repository.load(DEMO_PROJECT_ID).revision == 0
+    assert repository.load(DEMO_PROJECT_ID) == expected
     with pytest.raises(DuplicateProjectError):
         repository.create_project(Project(DEMO_PROJECT_ID, "Again", True, DEMO_TIME))
+
+
+class _CrashError(Exception):
+    """Stands for a process killed in the middle of the first seed."""
+
+
+class _CrashErroringRepository(InMemoryProvenanceRepository):
+    def __init__(self, crash_at: int) -> None:
+        super().__init__()
+        self._appends = 0
+        self.crash_at = crash_at
+
+    def append(
+        self,
+        project_id: ProjectId,
+        expected_revision: int,
+        records: Sequence[ProvenanceRecord],
+    ) -> int:
+        self._appends += 1
+        if self._appends == self.crash_at:
+            raise _CrashError()
+        return super().append(project_id, expected_revision, records)
+
+
+@pytest.mark.parametrize("crash_at", [1, 4, 10, 19])
+def test_an_interrupted_seed_is_completed_on_the_next_start(crash_at: int) -> None:
+    _, expected = _seeded()
+    repository = _CrashErroringRepository(crash_at)
+    with pytest.raises(_CrashError):
+        seed_synthetic_demo(repository)
+    assert repository.load(DEMO_PROJECT_ID).revision == crash_at - 1
+    repository.crash_at = 0
+    assert seed_synthetic_demo(repository) == DEMO_PROJECT_ID
+    assert repository.load(DEMO_PROJECT_ID) == expected
+
+
+def test_a_foreign_project_with_the_demo_id_fails_loudly() -> None:
+    repository = InMemoryProvenanceRepository()
+    repository.create_project(Project(DEMO_PROJECT_ID, "Seeded elsewhere", True, DEMO_TIME))
+    with pytest.raises(DemoSeedError, match="does not match"):
+        seed_synthetic_demo(repository)
+    assert repository.load(DEMO_PROJECT_ID).revision == 0
+
+
+class _FixedGraphRepository(InMemoryProvenanceRepository):
+    def __init__(self, graph: ProvenanceGraph) -> None:
+        super().__init__()
+        self._graph = graph
+
+    def load(self, project_id: ProjectId) -> ProvenanceGraph:
+        return self._graph
+
+
+def test_a_complete_project_that_differs_from_the_demo_fails_loudly() -> None:
+    _, graph = _seeded()
+    foreign = replace(graph, project=replace(graph.project, title="Seeded elsewhere"))
+    with pytest.raises(DemoSeedError):
+        seed_synthetic_demo(_FixedGraphRepository(foreign))
+    assert seed_synthetic_demo(_FixedGraphRepository(graph)) == DEMO_PROJECT_ID
 
 
 def test_demo_ids_match_the_seeded_records() -> None:
@@ -118,3 +206,18 @@ def test_demo_has_no_approvals_and_no_runs() -> None:
     assert graph.environments == ()
     assert graph.project.is_synthetic
     assert all(source.is_synthetic for source in graph.sources)
+
+
+class _VanishingRepository(InMemoryProvenanceRepository):
+    """Never shows the project it reports as existing, so seeding cannot progress."""
+
+    def load(self, project_id: ProjectId) -> ProvenanceGraph:
+        raise ProjectNotFoundError("project not found")
+
+    def create_project(self, project: Project) -> None:
+        raise DuplicateProjectError("project already exists")
+
+
+def test_seeding_that_cannot_progress_fails_instead_of_looping() -> None:
+    with pytest.raises(DemoSeedError):
+        seed_synthetic_demo(_VanishingRepository())
