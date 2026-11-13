@@ -243,6 +243,15 @@ class ProvenanceGraph:
         ]
         return max(candidates, key=lambda revision: revision.sequence, default=None)
 
+    def indexed_revisions(self) -> tuple[WorkspaceRevision, ...]:
+        """Revisions with ``symbols_indexed``, in sequence order."""
+        return tuple(
+            sorted(
+                (revision for revision in self.revisions if revision.symbols_indexed),
+                key=lambda revision: revision.sequence,
+            )
+        )
+
     def symbols_in(self, revision_id: str) -> tuple[CodeSymbol, ...]:
         return tuple(symbol for symbol in self.symbols if symbol.revision_id == revision_id)
 
@@ -286,6 +295,7 @@ class ProvenanceGraph:
         self._check_authority()
         self._check_claims()
         self._check_uniqueness()
+        self._check_symbol_files()
         self._check_decision_supersession()
         approvals: dict[str, list[int]] = {}
         for approval in self.approvals:
@@ -448,6 +458,15 @@ class ProvenanceGraph:
         ]
         for rule, keys, what in unique:
             _require_unique(rule, keys, what)
+
+    def _check_symbol_files(self) -> None:
+        issue_paths = {revision.id: revision.issue_paths for revision in self.revisions}
+        for symbol in self.symbols:
+            if symbol.file_path in issue_paths[symbol.revision_id]:
+                raise _fail(
+                    "G.symbol.issue_file",
+                    "a symbol lies in a file its revision lists as not indexed",
+                )
 
     def _check_decision_supersession(self) -> None:
         targets = [d.supersedes_id for d in self.decisions if d.supersedes_id is not None]

@@ -1,0 +1,17 @@
+"""PEP 696 corpus (Python 3.13 and later)."""
+
+
+def default_type[T = int](x: T) -> T:
+    return x
+
+
+def no_default[T](x: T) -> T:
+    return x
+
+
+class Holder[T = str, *Ts = *tuple[int, ...], **P = [int, str]]:
+    def value(self) -> T:
+        raise NotImplementedError
+
+
+type WithDefault[T = int] = list[T]

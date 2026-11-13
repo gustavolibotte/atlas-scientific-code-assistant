@@ -1,0 +1,111 @@
+{
+  "algorithm": "python-ast/1",
+  "corpus": {
+    "Fit": {
+      "kind": "class",
+      "sha256": "781ab4d372af36c19ab3ba4c2cfdb14c51995a318fb26a29962f2e85f72b221c"
+    },
+    "Fit.Inner": {
+      "kind": "class",
+      "sha256": "dd923ce0f93b4519c2f455cad7423d15a88dd910d647d2a7ad47c81375210b9f"
+    },
+    "Fit.Inner.m": {
+      "kind": "method",
+      "sha256": "270a9bf6a859b1b464407dd5937bf8237881e64257f1a9e9776dce71cdaf090d"
+    },
+    "Fit.__init__": {
+      "kind": "method",
+      "sha256": "5667fca6a623c3d031859bd3fe875ade88939a1499b6cfd77e826be353da146f"
+    },
+    "Fit.value": {
+      "kind": "method",
+      "sha256": "1ca788ba8bdc27623734b749e2ac7d0088284729ea0b483f571741339557088a"
+    },
+    "__module__": {
+      "kind": "module",
+      "sha256": "0fd9a113991eedd6dc3f829e766c1c60baf626b8d05cac18111064bd8c7cc0fc"
+    },
+    "estimate_amplitude": {
+      "kind": "function",
+      "sha256": "7b57113c6b8e26b64a1d608beb6ef221d158ed38e5c376c3453475e11d436633"
+    },
+    "fetch": {
+      "kind": "function",
+      "sha256": "067507f4ef9ae44179f2cfed3de2cb2f41eff2625b17165b88b72291a948d4b4"
+    },
+    "helper": {
+      "kind": "function",
+      "sha256": "5238ac3514e1a86c78ae731349641d2999c2a9d96792d6c1915a68e21489e746"
+    }
+  },
+  "corpus_py312": {
+    "Box": {
+      "kind": "class",
+      "sha256": "73f12863f36dcc7c1baabaf048e9d282df4786954cf6e3adc1a860beaa885987"
+    },
+    "Box.get": {
+      "kind": "method",
+      "sha256": "96b6465049b13a9e581322795f35a7877ce73a5bba69c3cf762520bfc55a0269"
+    },
+    "__module__": {
+      "kind": "module",
+      "sha256": "9f866d953cfa5db4afe4645af38f55dffd2b51ce5590f7fc1fd0a46a01341aec"
+    },
+    "first": {
+      "kind": "function",
+      "sha256": "f267f08deea396fc3c2d09d3108685448c6ad2c47ad5e8a8982c40ab71e3ee5c"
+    },
+    "plain": {
+      "kind": "function",
+      "sha256": "63f81ac7cf59aa230ffe931adde7fd3512dae2e26e2c53e542b3988f2994665b"
+    },
+    "quoted": {
+      "kind": "function",
+      "sha256": "759ebf0d9d846c4e8729f4be7cb5d74bc997527b551904b8f2f2f8f1177e7614"
+    }
+  },
+  "corpus_py313": {
+    "Holder": {
+      "kind": "class",
+      "sha256": "ad2f4ce0039a37cd6cf82b2ace25163459b48808c563b4d88eac73d1366e83fb"
+    },
+    "Holder.value": {
+      "kind": "method",
+      "sha256": "28599da8cff110555986243be6be62f171fd0754640a95857174d9a500225081"
+    },
+    "__module__": {
+      "kind": "module",
+      "sha256": "bd9c4ce1e3e1fc7931077fc8111bbf562f83a6f48fbea01eab1c2fd411e30750"
+    },
+    "default_type": {
+      "kind": "function",
+      "sha256": "e11f34af7c161060fcefc6c761823c783346969fce47bbf7713a400e88bf1ae7"
+    },
+    "no_default": {
+      "kind": "function",
+      "sha256": "dbc7abb7783ff44614aae6310eb5c23a3163d6672cf0ba6a06e08fc33019294a"
+    }
+  },
+  "reference_vectors": [
+    {
+      "qualified_name": "__module__",
+      "sha256": "e6d4228a801836644b1c293d8368d762b122f93ca36c0c5d31464c15329dd87a",
+      "source": ""
+    },
+    {
+      "qualified_name": "__module__",
+      "sha256": "911fd30674d2bb8303fa0af977acacfc0b277f4ff7456a77b56ade4f3f65f831",
+      "source": "x = 1\n"
+    },
+    {
+      "qualified_name": "f",
+      "sha256": "033d84e47ae2688fbbf50e046836970fe47e6e79c1e03fd7ab4ee75d4ed4e58f",
+      "source": "def f(n):\n    return f(n - 1)\n"
+    },
+    {
+      "qualified_name": "f",
+      "sha256": "f78d9a4780ac639dc862ff34fdafe0fbe9caaf36f5661cb5de39cd45d354492c",
+      "source": "def f():\n    pass\n"
+    }
+  ]
+}

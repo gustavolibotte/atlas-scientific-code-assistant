@@ -33,6 +33,8 @@ from asca.domain.provenance import (
     DecisionStatus,
     EnvironmentSnapshot,
     EvidenceLink,
+    FileIssue,
+    FileIssueKind,
     IdKind,
     ImplementationLink,
     Locator,
@@ -670,3 +672,34 @@ def test_lookups(complete: tuple[ProvenanceGraph, CompleteProject]) -> None:
     empty = ProvenanceGraph.empty(graph.project)
     assert empty.revision == 0
     assert empty.latest_revision() is None
+
+
+def test_symbols_never_lie_in_a_file_their_revision_lists_as_not_indexed(
+    complete: tuple[ProvenanceGraph, CompleteProject],
+) -> None:
+    graph, names = complete
+    revision = graph.get(WorkspaceRevision, names.revision2)
+    symbol = next(item for item in graph.symbols_in(revision.id))
+    issue = FileIssue(symbol.file_path, FileIssueKind.SYNTAX_ERROR)
+    flagged = replace(revision, file_issues=(issue,))
+    revisions = tuple(flagged if item.id == revision.id else item for item in graph.revisions)
+    with pytest.raises(ProvenanceInvariantError) as error:
+        replace(graph, revisions=revisions)
+    assert error.value.rule == "G.symbol.issue_file"
+    assert symbol.file_path not in str(error.value)
+    other = FileIssue("src/reco/unrelated.py", FileIssueKind.SYNTAX_ERROR)
+    unrelated = replace(revision, file_issues=(other,))
+    revisions = tuple(unrelated if item.id == revision.id else item for item in graph.revisions)
+    assert replace(graph, revisions=revisions).revisions
+
+
+def test_indexed_revisions_are_in_sequence_order(
+    complete: tuple[ProvenanceGraph, CompleteProject],
+) -> None:
+    graph, names = complete
+    assert [item.id for item in graph.indexed_revisions()] == [names.revision1, names.revision2]
+    unindexed = replace(graph.get(WorkspaceRevision, names.revision2), symbols_indexed=False)
+    revisions = tuple(unindexed if item.id == unindexed.id else item for item in graph.revisions)
+    assert [item.id for item in replace(graph, revisions=revisions).indexed_revisions()] == [
+        names.revision1
+    ]

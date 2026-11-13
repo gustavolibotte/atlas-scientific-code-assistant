@@ -28,6 +28,8 @@ from asca.domain.provenance import (
     EnvironmentSnapshot,
     EvidenceLink,
     EvidenceLinkId,
+    FileIssue,
+    FingerprintAlgorithm,
     IdKind,
     ImplementationLink,
     ImplementationLinkId,
@@ -108,6 +110,7 @@ class SymbolDraft:
     file_path: str
     span: SourceSpan | None = None
     fingerprint: str | None = None
+    fingerprint_algorithm: FingerprintAlgorithm | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +135,7 @@ class RunDraft:
 class RecordedRevision:
     revision_id: RevisionId
     symbol_ids: tuple[SymbolId, ...]
+    sequence: int
 
 
 class ProvenanceService:
@@ -334,8 +338,10 @@ class ProvenanceService:
         vcs_ref: str | None,
         symbols: Sequence[SymbolDraft],
         symbols_indexed: bool,
+        file_issues: Sequence[FileIssue] = (),
+        source_digest: str | None = None,
     ) -> RecordedRevision:
-        """Record a revision and all its symbols in one batch."""
+        """Record a revision, its file issues and all its symbols in one batch."""
         graph = self.load(project_id)
         revision = WorkspaceRevision(
             id=RevisionId(self._new(IdKind.WORKSPACE_REVISION)),
@@ -344,6 +350,8 @@ class ProvenanceService:
             vcs_ref=vcs_ref,
             symbols_indexed=symbols_indexed,
             recorded_at=self._clock.now(),
+            file_issues=tuple(sorted(file_issues, key=lambda issue: issue.file_path)),
+            source_digest=source_digest,
         )
         records: list[ProvenanceRecord] = [revision]
         for draft in symbols:
@@ -358,12 +366,14 @@ class ProvenanceService:
                     file_path=draft.file_path,
                     span=draft.span,
                     fingerprint=draft.fingerprint,
+                    fingerprint_algorithm=draft.fingerprint_algorithm,
                 )
             )
         self._commit(graph, records)
         return RecordedRevision(
             revision_id=revision.id,
             symbol_ids=tuple(record.id for record in records if isinstance(record, CodeSymbol)),
+            sequence=revision.sequence,
         )
 
     def link_implementation(

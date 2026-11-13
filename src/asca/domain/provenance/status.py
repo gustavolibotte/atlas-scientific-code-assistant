@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from asca.domain.provenance.claims import Claim, ClaimVerificationState
-from asca.domain.provenance.code import CodeSymbol, ImplementationLink, LinkFreshness
+from asca.domain.provenance.code import ImplementationLink, LinkFreshness
 from asca.domain.provenance.decisions import (
     COUNTED_STANCES,
     Approval,
@@ -20,6 +20,7 @@ from asca.domain.provenance.decisions import (
     StatusReason,
 )
 from asca.domain.provenance.ids import ApprovalId, DecisionId
+from asca.domain.provenance.lineage import SymbolLineage
 from asca.domain.provenance.sources import (
     Currency,
     SourceAuthority,
@@ -186,23 +187,8 @@ def derive_status(graph: "ProvenanceGraph", decision_id: str) -> DecisionStatusR
 
 
 def link_freshness(graph: "ProvenanceGraph", link: ImplementationLink) -> LinkFreshness:
-    symbol = graph.get(CodeSymbol, link.symbol_id)
-    if symbol.fingerprint is None:
-        return LinkFreshness.UNKNOWN
-    revision = graph.latest_revision(indexed_only=True)
-    if revision is None:
-        return LinkFreshness.UNKNOWN
-    candidates = graph.symbols_in(revision.id)
-    same_key = next((item for item in candidates if item.key == symbol.key), None)
-    if same_key is not None:
-        if same_key.fingerprint is None:
-            return LinkFreshness.UNKNOWN
-        if same_key.fingerprint == symbol.fingerprint:
-            return LinkFreshness.CURRENT
-        return LinkFreshness.STALE
-    if any(item.fingerprint == symbol.fingerprint for item in candidates):
-        return LinkFreshness.MOVED
-    return LinkFreshness.ORPHANED
+    """Freshness of ``link`` from the lineage of its symbol (see ``lineage.py``)."""
+    return SymbolLineage(graph).resolve(link).freshness
 
 
 def latest_result(

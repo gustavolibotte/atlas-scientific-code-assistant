@@ -14,6 +14,7 @@ from provenance_builders import build_complete_real_project, make_service
 
 from asca.application.demo import DEMO_TIME
 from asca.domain.provenance import (
+    FILE_ISSUES_MAX,
     RECORD_FIELDS,
     AccessClass,
     Alternative,
@@ -28,6 +29,9 @@ from asca.domain.provenance import (
     CodeSymbol,
     EnvironmentId,
     EnvironmentSnapshot,
+    FileIssue,
+    FileIssueKind,
+    FingerprintAlgorithm,
     PackagePin,
     ProjectId,
     ProvenanceGraph,
@@ -45,6 +49,7 @@ from asca.domain.provenance import (
     TestResult,
     ValidationRun,
     VerificationLink,
+    WorkspaceRevision,
     environment_id_for,
 )
 
@@ -351,3 +356,73 @@ def test_source_authority_letters_and_support(graph: ProvenanceGraph) -> None:
     source = graph.sources[0]
     assert _rule(lambda: replace(source, persistent_id="10.5555/x")) == "R.source.persistent_id"
     assert _rule(lambda: replace(graph.test_cases[0], node_id=None)) == "R.test.node_id"
+
+
+# ---------------------------------------------------------------------- M2 indexing fields
+
+
+def _indexed_revision(graph: ProvenanceGraph) -> WorkspaceRevision:
+    return next(item for item in graph.revisions if item.symbols_indexed)
+
+
+def test_revision_file_issue_rules(graph: ProvenanceGraph) -> None:
+    revision = _indexed_revision(graph)
+    first = FileIssue("src/a.py", FileIssueKind.SYNTAX_ERROR)
+    second = FileIssue("src/b.py", FileIssueKind.SYMLINK)
+    assert revision.file_issues == ()
+    assert revision.source_digest is None
+    valid = replace(revision, file_issues=(first, second), source_digest=HASH)
+    assert valid.issue_for("src/b.py") == second
+    assert valid.issue_for("src/a.py") == first
+    assert valid.issue_for("src/c.py") is None
+    assert valid.issue_for("src/0.py") is None
+    assert valid.issue_paths == frozenset({"src/a.py", "src/b.py"})
+    cases = [
+        ((second, first), "R.revision.file_issues"),
+        ((first, first), "R.revision.file_issues"),
+        ([first], "R.revision.file_issues"),
+        (("src/a.py",), "R.revision.file_issues"),
+        ((first, None), "R.revision.file_issues"),
+    ]
+    for issues, rule in cases:
+        assert _rule(lambda issues=issues: replace(revision, file_issues=issues)) == rule
+    too_many = tuple(
+        FileIssue(f"src/f{index:05d}.py", FileIssueKind.BINARY)
+        for index in range(FILE_ISSUES_MAX + 1)
+    )
+    assert _rule(lambda: replace(revision, file_issues=too_many)) == "R.revision.file_issues"
+    assert len(replace(revision, file_issues=too_many[:-1]).file_issues) == FILE_ISSUES_MAX
+
+
+def test_revision_source_digest_and_unindexed_rules(graph: ProvenanceGraph) -> None:
+    revision = _indexed_revision(graph)
+    issue = FileIssue("src/a.py", FileIssueKind.SYNTAX_ERROR)
+    assert _rule(lambda: replace(revision, source_digest="ABC")) == "R.hash.format"
+    assert _rule(lambda: replace(revision, source_digest="A" * 64)) == "R.hash.format"
+    unindexed = replace(revision, symbols_indexed=False)
+    assert _rule(lambda: replace(unindexed, file_issues=(issue,))) == "R.revision.unindexed"
+    assert _rule(lambda: replace(unindexed, source_digest=HASH)) == "R.revision.unindexed"
+    assert replace(revision, file_issues=(issue,)).source_digest is None
+
+
+def test_file_issue_rules() -> None:
+    issue = FileIssue("src/a.py", FileIssueKind.BINARY)
+    assert issue.kind is FileIssueKind.BINARY
+    assert _rule(lambda: FileIssue("/abs.py", FileIssueKind.BINARY)) == "R.path.relative"
+    assert _rule(lambda: FileIssue("../a.py", FileIssueKind.BINARY)) == "R.path.relative"
+    assert _rule(lambda: FileIssue("src/a.py", "binary")) == "R.enum.type"  # type: ignore[arg-type]
+    with pytest.raises(FrozenInstanceError):
+        issue.kind = FileIssueKind.TOO_LARGE  # type: ignore[misc]
+
+
+def test_symbol_fingerprint_algorithm_rules(graph: ProvenanceGraph) -> None:
+    symbol = next(item for item in graph.symbols if item.fingerprint is not None)
+    assert symbol.fingerprint_algorithm is None
+    assert symbol.fingerprint_key == (None, symbol.fingerprint)
+    tagged = replace(symbol, fingerprint_algorithm=FingerprintAlgorithm.PYTHON_AST_1)
+    assert tagged.fingerprint_key == (FingerprintAlgorithm.PYTHON_AST_1, symbol.fingerprint)
+    assert tagged.fingerprint_key != symbol.fingerprint_key
+    assert FingerprintAlgorithm.PYTHON_AST_1.language is symbol.language
+    assert _rule(lambda: replace(tagged, fingerprint=None)) == "R.symbol.fingerprint_algorithm"
+    assert _rule(lambda: replace(symbol, fingerprint_algorithm="python-ast/1")) == "R.enum.type"
+    assert replace(symbol, fingerprint=None).fingerprint_key is None
