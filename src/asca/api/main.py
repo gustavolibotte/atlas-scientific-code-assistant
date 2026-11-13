@@ -1,5 +1,9 @@
 """FastAPI composition root for the read-only foundation API."""
 
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI
@@ -25,8 +29,13 @@ from asca.api.schemas import (
 from asca.application.demo import DEMO_DECISION_ID, DEMO_PROJECT_ID, seed_synthetic_demo
 from asca.application.ports import Clock, IdFactory
 from asca.application.provenance import ProvenanceService
-from asca.infrastructure.memory_provenance import InMemoryProvenanceRepository
+from asca.infrastructure.persistence import open_sqlite_store, validate_database_url
+from asca.infrastructure.persistence.database import MEMORY_URL
 from asca.infrastructure.system import SystemClock, Uuid4IdFactory
+
+DATABASE_URL_ENV = "ASCA_DATABASE_URL"
+DEFAULT_FILE_DATABASE_URL = "sqlite+pysqlite:///./.asca/asca.db"
+_SQLITE_URL_PREFIX = "sqlite+pysqlite:///"
 
 
 async def add_security_headers(request: Request, call_next: object) -> Response:
@@ -54,24 +63,42 @@ def _mount_routes(app: FastAPI, router: APIRouter) -> None:
 
 
 def create_app(
+    database_url: str = MEMORY_URL,
     *,
     seed_demo: bool = True,
     clock: Clock | None = None,
     ids: IdFactory | None = None,
 ) -> FastAPI:
-    """Create a deterministic application without external side effects.
+    """Create the application around a migrated SQLite provenance store.
 
-    Interim composition: provenance lives in an in-memory repository. Everything is
-    built eagerly; no environment variable or file is read.
+    Everything is built eagerly and no environment variable is read. The default
+    in-memory database touches no file; a file URL is migrated to the head revision.
+    Seeding the synthetic demonstration project is idempotent, so a second
+    application on the same file reuses the stored project unchanged.
     """
-    repository = InMemoryProvenanceRepository()
-    service = ProvenanceService(repository, clock or SystemClock(), ids or Uuid4IdFactory())
-    if seed_demo:
-        seed_synthetic_demo(repository)
+    store = open_sqlite_store(database_url)
+    try:
+        service = ProvenanceService(
+            store.repository, clock or SystemClock(), ids or Uuid4IdFactory()
+        )
+        if seed_demo:
+            seed_synthetic_demo(store.repository)
+    except BaseException:
+        store.dispose()
+        raise
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            store.dispose()
+
     app = FastAPI(
         title="ATLAS Scientific Code Assistant",
         version=__version__,
         summary="Foundation API — integrations are not configured",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -153,3 +180,19 @@ def create_app(
     _mount_routes(app, build_provenance_router())
     _mount_routes(app, build_export_router())
     return app
+
+
+def create_app_from_environment() -> FastAPI:
+    """Create the application with the database named by ``ASCA_DATABASE_URL``.
+
+    This is the only entry point that reads the environment. The default is a file
+    database under ``./.asca/``. For a relative file path the parent directory is
+    created with mode ``0o700``; the URL is validated first, so an unsupported value
+    creates nothing and is never echoed.
+    """
+    url = validate_database_url(os.environ.get(DATABASE_URL_ENV, DEFAULT_FILE_DATABASE_URL))
+    if url != MEMORY_URL:
+        path = Path(url.removeprefix(_SQLITE_URL_PREFIX))
+        if not path.is_absolute():
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return create_app(url)
