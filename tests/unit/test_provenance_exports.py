@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator, FormatChecker
 from provenance_builders import CompleteProject, build_complete_real_project, make_service
 
 from asca.application.demo import (
@@ -24,7 +25,16 @@ from asca.application.exports import (
     canonical_json,
     format_utc,
 )
-from asca.application.provenance import EnvironmentDraft, RunDraft, SourceDraft, VersionDraft
+from asca.application.indexing import IndexingService
+from asca.application.ports import IndexLimits, WorkspaceFile, WorkspaceSnapshot
+from asca.application.provenance import (
+    DecisionDraft,
+    EnvironmentDraft,
+    RunDraft,
+    SourceDraft,
+    VersionDraft,
+)
+from asca.contracts import load_export_schema
 from asca.domain.provenance import (
     POLICY_NOTE,
     RECORD_FIELDS,
@@ -41,6 +51,7 @@ from asca.domain.provenance import (
     TestOutcome,
     TestResult,
 )
+from asca.infrastructure.indexing.python_symbols import PythonAstExtractor
 from asca.infrastructure.memory_provenance import InMemoryProvenanceRepository
 
 pytestmark = pytest.mark.unit
@@ -604,3 +615,98 @@ def test_synthetic_runs_count_as_not_run_in_the_summary() -> None:
     assert outcomes["not_run"] == 1
     [case] = report["test_cases"]
     assert case["latest"]["origin"] == "synthetic"
+
+
+# ---------------------------------------------------------------------- indexed project
+
+_INDEXED_REV1 = {
+    "src/reco/calibration.py": "def calibrate(value):\n    return value * 1.5\n",
+    "src/reco/estimators.py": (
+        "def estimate_amplitude(samples, weights):\n"
+        "    return sum(s * w for s, w in zip(samples, weights))\n"
+        "\n\n"
+        "def subtract_pedestal(samples, pedestal):\n"
+        "    return [s - pedestal for s in samples]\n"
+        "\n\n"
+        "def legacy_scale(samples):\n"
+        "    return [2 * s for s in samples]\n"
+    ),
+    "src/reco/fit.py": "def fit(values):\n    return max(values)\n",
+}
+_INDEXED_REV2 = {
+    "src/reco/calibration.py": "def calibrate(value):\n    return value * 2.0\n",
+    "src/reco/estimators.py": (
+        "def estimate_amplitude(samples, weights):  # reformatted, same body\n"
+        "    return sum(\n"
+        "        s * w for s, w in zip(samples, weights)\n"
+        "    )\n"
+        "\n\n"
+        "def remove_pedestal(samples, pedestal):\n"
+        "    return [s - pedestal for s in samples]\n"
+    ),
+    "src/reco/fit.py": "def fit(values:\n",
+}
+
+
+class _SnapshotReader:
+    def __init__(self, files: dict[str, str]) -> None:
+        self._snapshot = WorkspaceSnapshot(
+            tuple(
+                WorkspaceFile(path, text.encode("utf-8"), None)
+                for path, text in sorted(files.items())
+            ),
+            0,
+        )
+
+    def read(self, suffixes: frozenset[str], limits: IndexLimits) -> WorkspaceSnapshot:
+        return self._snapshot
+
+
+def _indexed_project() -> tuple[ProvenanceGraph, dict[str, str]]:
+    """A real project indexed twice with ``python-ast/1``; each link ends in a different state."""
+    service = make_service()
+    indexer = IndexingService(service, [PythonAstExtractor()])
+    project = service.create_project("Indexed fixture project", is_synthetic=False)
+    first = indexer.index_workspace(project, _SnapshotReader(_INDEXED_REV1), vcs_ref="rev-1")
+    graph = service.load(project)
+    by_name = {item.qualified_name: item.id for item in graph.symbols_in(first.revision_id)}
+    links: dict[str, str] = {}
+    for name in ("estimate_amplitude", "subtract_pedestal", "legacy_scale", "calibrate", "fit"):
+        decision = service.propose_decision(
+            project,
+            DecisionDraft(title=f"Fixture {name}", statement="Fixture.", rationale="Fixture."),
+        )
+        links[name] = service.link_implementation(project, decision, by_name[name])
+    indexer.index_workspace(project, _SnapshotReader(_INDEXED_REV2), vcs_ref="rev-2")
+    return service.load(project), links
+
+
+@pytest.mark.parametrize("audience", list(AccessClass))
+def test_exports_of_an_indexed_project_validate_against_v1(audience: AccessClass) -> None:
+    graph, links = _indexed_project()
+    assert all(item.fingerprint_algorithm is not None for item in graph.symbols)
+    (indexed,) = [item for item in graph.revisions if item.file_issues]
+    assert [(item.file_path, item.kind.value) for item in indexed.file_issues] == [
+        ("src/reco/fit.py", "syntax_error")
+    ]
+    documents = _all(graph, audience)
+    for artifact, document in documents.items():
+        validator = Draft202012Validator(
+            load_export_schema(artifact.value), format_checker=FormatChecker()
+        )
+        assert list(validator.iter_errors(document)) == []
+    freshness = {
+        item["link_id"]: item["freshness"]
+        for decision in documents[ExportArtifact.DECISION_RECORDS]["decisions"]
+        for item in decision["implemented_by"]
+    }
+    assert freshness == {
+        links["estimate_amplitude"]: "current",
+        links["subtract_pedestal"]: "moved",
+        links["legacy_scale"]: "orphaned",
+        links["calibrate"]: "stale",
+        links["fit"]: "unknown",
+    }
+    assert canonical_json(documents[ExportArtifact.DECISION_RECORDS]) == canonical_json(
+        _export(_indexed_project()[0], ExportArtifact.DECISION_RECORDS, audience)
+    )

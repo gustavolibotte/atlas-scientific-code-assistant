@@ -33,6 +33,8 @@ def build_provenance_router() -> APIRouter:
     @router.get("/api/v1/projects/{project_id}/symbols", response_model=SymbolListResponse)
     def list_project_symbols(project_id: ProjectIdPath, service: Service) -> SymbolListResponse:
         """List the symbols of the project's latest workspace revision."""
+        # Local single-user mode: every access class is returned.
+        # M10: filter by viewer before any non-loopback deployment
         return symbol_list_response(service.load(ProjectId(project_id)))
 
     @router.get(

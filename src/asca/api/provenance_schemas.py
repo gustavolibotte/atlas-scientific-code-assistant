@@ -16,6 +16,9 @@ from asca.domain.provenance import (
     ClaimVerificationState,
     Currency,
     DecisionStatus,
+    FileIssueKind,
+    FingerprintAlgorithm,
+    FreshnessReason,
     Language,
     LinkFreshness,
     LocatorKind,
@@ -48,6 +51,8 @@ class RevisionDTO(StrictModel):
     sequence: int
     vcs_ref: str | None
     symbols_indexed: bool
+    source_digest: str | None
+    file_issue_count: int
 
 
 class SpanDTO(StrictModel):
@@ -63,6 +68,7 @@ class CodeSymbolDTO(StrictModel):
     language: Language
     span: SpanDTO | None
     fingerprint: str | None
+    fingerprint_algorithm: FingerprintAlgorithm | None
     revision: RevisionDTO
 
 
@@ -76,10 +82,37 @@ class SymbolSummaryDTO(StrictModel):
     worst_freshness: LinkFreshness | None
 
 
+class FileIssueDTO(StrictModel):
+    file_path: str
+    kind: FileIssueKind
+
+
+class SymbolLocationDTO(StrictModel):
+    symbol_id: str
+    qualified_name: str
+    file_path: str
+    kind: SymbolKind
+    span: SpanDTO | None
+    revision_sequence: int
+
+
+class LinkHealthDTO(StrictModel):
+    link_id: str
+    decision_id: str
+    decision_title: str
+    freshness: LinkFreshness
+    freshness_reason: FreshnessReason
+    linked_symbol: SymbolLocationDTO
+    current_symbol: SymbolLocationDTO | None
+    created_at: datetime
+
+
 class SymbolListResponse(StrictModel):
     project: ProjectSummaryDTO
     revision: RevisionDTO | None
     items: list[SymbolSummaryDTO]
+    file_issues: list[FileIssueDTO]
+    links: list[LinkHealthDTO]
 
 
 class LocatorPartDTO(StrictModel):
@@ -166,6 +199,13 @@ class ImplementationDTO(StrictModel):
     link_id: str
     freshness: LinkFreshness
     created_at: datetime
+    freshness_reason: FreshnessReason
+    linked_symbol: SymbolLocationDTO
+    current_symbol: SymbolLocationDTO | None
+    last_seen_symbol: SymbolLocationDTO
+    lost_in_revision_sequence: int | None
+    candidates: list[SymbolLocationDTO]
+    file_issue: FileIssueKind | None
 
 
 class TestRunRefDTO(StrictModel):
@@ -232,3 +272,4 @@ class FunctionInspectionResponse(StrictModel):
     decisions: list[DecisionViewDTO]
     direct_tests: list[TestStatusDTO]
     warnings: list[InspectionWarning]
+    file_issue: FileIssueKind | None

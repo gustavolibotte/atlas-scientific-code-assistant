@@ -8,8 +8,10 @@ from asca.api.provenance_schemas import (
     CodeSymbolDTO,
     DecisionViewDTO,
     EvidenceItemDTO,
+    FileIssueDTO,
     FunctionInspectionResponse,
     ImplementationDTO,
+    LinkHealthDTO,
     LocatorPartDTO,
     PersistentIdDTO,
     ProjectListResponse,
@@ -21,6 +23,7 @@ from asca.api.provenance_schemas import (
     SpanDTO,
     SupersessionDTO,
     SymbolListResponse,
+    SymbolLocationDTO,
     SymbolSummaryDTO,
     TestRunRefDTO,
     TestStatusDTO,
@@ -29,8 +32,10 @@ from asca.application.inspection import (
     DecisionView,
     EvidenceView,
     FunctionInspection,
+    LinkHealth,
     SymbolSummary,
     TestView,
+    link_health,
     list_symbols,
 )
 from asca.application.ports import ProjectSummary
@@ -41,9 +46,13 @@ from asca.domain.provenance import (
     Approval,
     ClaimCheck,
     CodeSymbol,
+    FileIssueKind,
+    FreshnessReason,
     Project,
     ProvenanceGraph,
+    SourceSpan,
     SupersessionNotice,
+    SymbolTrace,
     WorkspaceRevision,
 )
 
@@ -70,7 +79,13 @@ def revision_dto(revision: WorkspaceRevision) -> RevisionDTO:
         sequence=revision.sequence,
         vcs_ref=revision.vcs_ref,
         symbols_indexed=revision.symbols_indexed,
+        source_digest=revision.source_digest,
+        file_issue_count=len(revision.file_issues),
     )
+
+
+def _span_dto(span: SourceSpan | None) -> SpanDTO | None:
+    return None if span is None else SpanDTO(start_line=span.start_line, end_line=span.end_line)
 
 
 def code_symbol_dto(symbol: CodeSymbol, revision: WorkspaceRevision) -> CodeSymbolDTO:
@@ -80,13 +95,50 @@ def code_symbol_dto(symbol: CodeSymbol, revision: WorkspaceRevision) -> CodeSymb
         file_path=symbol.file_path,
         kind=symbol.kind,
         language=symbol.language,
-        span=(
-            None
-            if symbol.span is None
-            else SpanDTO(start_line=symbol.span.start_line, end_line=symbol.span.end_line)
-        ),
+        span=_span_dto(symbol.span),
         fingerprint=symbol.fingerprint,
+        fingerprint_algorithm=symbol.fingerprint_algorithm,
         revision=revision_dto(revision),
+    )
+
+
+def symbol_location_dto(graph: ProvenanceGraph, symbol: CodeSymbol) -> SymbolLocationDTO:
+    return SymbolLocationDTO(
+        symbol_id=symbol.id,
+        qualified_name=symbol.qualified_name,
+        file_path=symbol.file_path,
+        kind=symbol.kind,
+        span=_span_dto(symbol.span),
+        revision_sequence=graph.get(WorkspaceRevision, symbol.revision_id).sequence,
+    )
+
+
+def _optional_location(
+    graph: ProvenanceGraph, symbol: CodeSymbol | None
+) -> SymbolLocationDTO | None:
+    return None if symbol is None else symbol_location_dto(graph, symbol)
+
+
+def _trace_file_issue(trace: SymbolTrace) -> FileIssueKind | None:
+    """The issue that kept the last seen file from being parsed (``file_not_parsed`` only)."""
+    evaluated = trace.evaluated_revision
+    if trace.reason is not FreshnessReason.FILE_NOT_PARSED or evaluated is None:
+        return None
+    issue = evaluated.issue_for(trace.last_seen.file_path)
+    return None if issue is None else issue.kind
+
+
+def link_health_dto(graph: ProvenanceGraph, health: LinkHealth) -> LinkHealthDTO:
+    trace = health.trace
+    return LinkHealthDTO(
+        link_id=health.link.id,
+        decision_id=health.decision.id,
+        decision_title=health.decision.title,
+        freshness=trace.freshness,
+        freshness_reason=trace.reason,
+        linked_symbol=symbol_location_dto(graph, trace.origin),
+        current_symbol=_optional_location(graph, trace.current),
+        created_at=health.link.created_at,
     )
 
 
@@ -109,6 +161,15 @@ def symbol_list_response(graph: ProvenanceGraph) -> SymbolListResponse:
         project=project_summary_dto(graph.project, graph.revision),
         revision=None if revision is None else revision_dto(revision),
         items=[symbol_summary_dto(item) for item in list_symbols(graph)],
+        file_issues=(
+            []
+            if revision is None
+            else [
+                FileIssueDTO(file_path=item.file_path, kind=item.kind)
+                for item in revision.file_issues
+            ]
+        ),
+        links=[link_health_dto(graph, item) for item in link_health(graph)],
     )
 
 
@@ -214,6 +275,23 @@ def _review_dto(approval: Approval, current_id: str | None) -> ReviewDTO:
     )
 
 
+def _implementation_dto(graph: ProvenanceGraph, view: DecisionView) -> ImplementationDTO:
+    trace = view.trace
+    lost = trace.lost_in_revision
+    return ImplementationDTO(
+        link_id=view.implementation_link.id,
+        freshness=view.freshness,
+        created_at=view.implementation_link.created_at,
+        freshness_reason=trace.reason,
+        linked_symbol=symbol_location_dto(graph, trace.origin),
+        current_symbol=_optional_location(graph, trace.current),
+        last_seen_symbol=symbol_location_dto(graph, trace.last_seen),
+        lost_in_revision_sequence=None if lost is None else lost.sequence,
+        candidates=[symbol_location_dto(graph, item) for item in trace.candidates],
+        file_issue=_trace_file_issue(trace),
+    )
+
+
 def _decision_dto(graph: ProvenanceGraph, view: DecisionView) -> DecisionViewDTO:
     decision = view.decision
     report = view.status
@@ -242,11 +320,7 @@ def _decision_dto(graph: ProvenanceGraph, view: DecisionView) -> DecisionViewDTO
         approval_stale=report.approval_stale,
         supersedes=decision.supersedes_id,
         superseded_by=report.superseded_by,
-        implementation=ImplementationDTO(
-            link_id=view.implementation_link.id,
-            freshness=view.freshness,
-            created_at=view.implementation_link.created_at,
-        ),
+        implementation=_implementation_dto(graph, view),
         evidence=[_evidence_dto(item) for item in view.evidence],
         tests=[_test_dto(graph, item) for item in view.tests],
         reviews=[_review_dto(item, report.current_approval_id) for item in view.approvals],
@@ -267,4 +341,5 @@ def function_inspection_response(
         decisions=[_decision_dto(graph, item) for item in inspection.decisions],
         direct_tests=[_test_dto(graph, item) for item in inspection.direct_tests],
         warnings=list(inspection.warnings),
+        file_issue=None if inspection.file_issue is None else inspection.file_issue.kind,
     )

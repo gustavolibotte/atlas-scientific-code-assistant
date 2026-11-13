@@ -27,6 +27,7 @@ from asca.domain.provenance import (
     Source,
     SourceVersion,
     SupersessionDimension,
+    SymbolLineage,
     TestCase,
     TestOutcome,
     ValidationRun,
@@ -34,7 +35,6 @@ from asca.domain.provenance import (
     currency,
     derive_status,
     latest_result,
-    link_freshness,
 )
 
 GENERATOR_NAME = "asca"
@@ -265,7 +265,9 @@ def _review_document(approval: Approval, current_id: str | None) -> Document:
     }
 
 
-def _decision_document(graph: ProvenanceGraph, decision: ScientificDecision) -> Document:
+def _decision_document(
+    graph: ProvenanceGraph, lineage: SymbolLineage, decision: ScientificDecision
+) -> Document:
     report = derive_status(graph, decision.id)
     evidence: list[Document] = []
     for link in sorted(graph.links_for(decision.id), key=lambda item: (item.created_at, item.id)):
@@ -297,7 +299,7 @@ def _decision_document(graph: ProvenanceGraph, decision: ScientificDecision) -> 
                 "file_path": symbol.file_path,
                 "revision_sequence": graph.get(WorkspaceRevision, symbol.revision_id).sequence,
                 "fingerprint": symbol.fingerprint,
-                "freshness": link_freshness(graph, impl).value,
+                "freshness": lineage.resolve(impl).freshness.value,
                 "created_at": format_utc(impl.created_at),
             }
         )
@@ -350,12 +352,13 @@ def _decision_records(
 ) -> tuple[Document, list[Document]]:
     withheld: list[Document] = []
     decisions: list[Document] = []
+    lineage = SymbolLineage(graph)
     for decision in sorted(graph.decisions, key=lambda item: (item.created_at, item.id)):
         access_class = derive_status(graph, decision.id).effective_access_class
         if not audience.permits(access_class):
             withheld.append(_withheld(WithheldKind.DECISION, decision.id, access_class))
             continue
-        decisions.append(_decision_document(graph, decision))
+        decisions.append(_decision_document(graph, lineage, decision))
     return {"decisions": decisions}, withheld
 
 

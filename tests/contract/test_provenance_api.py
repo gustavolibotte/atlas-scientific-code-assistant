@@ -13,22 +13,29 @@ from provenance_builders import (
     CountingIdFactory,
     StepClock,
     build_complete_real_project,
+    fingerprint,
 )
 
 from asca.api.main import create_app
 from asca.application.demo import DEMO_DECISION_ID, DEMO_PROJECT_ID
 from asca.application.inspection import InspectionWarning
-from asca.application.provenance import ProvenanceService
+from asca.application.provenance import ProvenanceService, SymbolDraft
 from asca.domain.provenance import (
     POLICY_NOTE,
     REVIEW_NOTE,
     SYNTHETIC_NOTICE,
     ApprovalVerdict,
     DecisionStatus,
+    FileIssue,
+    FileIssueKind,
+    FingerprintAlgorithm,
+    Language,
     LinkFreshness,
     SourceAuthority,
+    SourceSpan,
     Stance,
     StatusReason,
+    SymbolKind,
 )
 
 pytestmark = pytest.mark.contract
@@ -41,7 +48,14 @@ NEW_PATHS = (
 )
 
 PROJECT_KEYS = {"id", "title", "is_synthetic", "revision", "created_at"}
-REVISION_KEYS = {"id", "sequence", "vcs_ref", "symbols_indexed"}
+REVISION_KEYS = {
+    "id",
+    "sequence",
+    "vcs_ref",
+    "symbols_indexed",
+    "source_digest",
+    "file_issue_count",
+}
 SYMBOL_KEYS = {
     "id",
     "qualified_name",
@@ -50,6 +64,7 @@ SYMBOL_KEYS = {
     "language",
     "span",
     "fingerprint",
+    "fingerprint_algorithm",
     "revision",
 }
 SUMMARY_KEYS = {
@@ -70,6 +85,31 @@ INSPECTION_KEYS = {
     "decisions",
     "direct_tests",
     "warnings",
+    "file_issue",
+}
+LISTING_KEYS = {"project", "revision", "items", "file_issues", "links"}
+LOCATION_KEYS = {"symbol_id", "qualified_name", "file_path", "kind", "span", "revision_sequence"}
+IMPLEMENTATION_KEYS = {
+    "link_id",
+    "freshness",
+    "created_at",
+    "freshness_reason",
+    "linked_symbol",
+    "current_symbol",
+    "last_seen_symbol",
+    "lost_in_revision_sequence",
+    "candidates",
+    "file_issue",
+}
+LINK_HEALTH_KEYS = {
+    "link_id",
+    "decision_id",
+    "decision_title",
+    "freshness",
+    "freshness_reason",
+    "linked_symbol",
+    "current_symbol",
+    "created_at",
 }
 DECISION_KEYS = {
     "id",
@@ -182,7 +222,10 @@ def test_projects_list_the_demo_as_synthetic(client: TestClient) -> None:
 
 def test_demo_symbols_to_inspection_round_trip(client: TestClient) -> None:
     listing = _symbols(client, DEMO_PROJECT_ID)
-    assert set(listing) == {"project", "revision", "items"}
+    assert set(listing) == LISTING_KEYS
+    assert listing["file_issues"] == []
+    assert [item["freshness"] for item in listing["links"]] == ["unknown", "unknown"]
+    assert {item["freshness_reason"] for item in listing["links"]} == {"not_fingerprinted"}
     assert listing["project"]["id"] == DEMO_PROJECT_ID
     assert set(listing["revision"]) == REVISION_KEYS
     assert [item["qualified_name"] for item in listing["items"]] == [
@@ -206,6 +249,8 @@ def test_demo_symbols_to_inspection_round_trip(client: TestClient) -> None:
     assert decision["id"] == DEMO_DECISION_ID
     assert decision["status"] == DecisionStatus.SUPPORTED.value
     assert decision["implementation"]["freshness"] == LinkFreshness.UNKNOWN.value
+    assert decision["implementation"]["freshness_reason"] == "not_fingerprinted"
+    assert body["file_issue"] is None
     assert decision["warnings"] == [
         "decision_not_reviewed",
         "link_unknown_freshness",
@@ -253,10 +298,48 @@ def test_complete_project_symbols_listing(
         for item in listing["items"]
     }
     assert table == {
-        ("src/reco/calibration.py", "calibrate"): (0, None),
+        ("src/reco/calibration.py", "calibrate"): (1, "moved"),
         ("src/reco/estimators.py", "estimate_amplitude"): (1, "current"),
         ("src/reco/estimators.py", "subtract_pedestal"): (1, "stale"),
     }
+    assert set(listing) == LISTING_KEYS
+    assert set(listing["revision"]) == REVISION_KEYS
+    assert listing["revision"]["source_digest"] is None
+    assert listing["revision"]["file_issue_count"] == 0
+    assert listing["file_issues"] == []
+    links = listing["links"]
+    for item in links:
+        assert set(item) == LINK_HEALTH_KEYS
+        assert set(item["linked_symbol"]) == LOCATION_KEYS
+    assert [
+        (item["link_id"], item["decision_id"], item["freshness"], item["freshness_reason"])
+        for item in links
+    ] == [
+        (names.link_orphaned, names.de, "orphaned", "removed"),
+        (names.link_stale, names.db, "stale", "content_changed"),
+        (names.link_moved, names.dd, "moved", "relocated"),
+        (names.link_current, names.da, "current", "unchanged"),
+    ]
+    assert [item["decision_title"] for item in links] == [
+        "De rejected shortcut",
+        "Db pedestal handling",
+        "Dd automated optimality",
+        "Da weighted estimator",
+    ]
+    orphaned, _, moved, current = links
+    assert orphaned["current_symbol"] is None
+    assert orphaned["linked_symbol"] == {
+        "symbol_id": names.symbol_orphaned,
+        "qualified_name": "LegacyFit.fit",
+        "file_path": "src/reco/estimators.py",
+        "kind": "method",
+        "span": None,
+        "revision_sequence": 1,
+    }
+    assert moved["linked_symbol"]["file_path"] == "src/reco/estimators.py"
+    assert moved["current_symbol"]["file_path"] == "src/reco/calibration.py"
+    assert moved["current_symbol"]["revision_sequence"] == 2
+    assert current["current_symbol"]["span"] == {"start_line": 1, "end_line": 3}
 
 
 def test_complete_project_inspection_key_sets_and_enum_values(
@@ -270,6 +353,8 @@ def test_complete_project_inspection_key_sets_and_enum_values(
     assert set(body["project"]) == PROJECT_KEYS
     assert set(body["symbol"]) == SYMBOL_KEYS
     assert set(body["symbol"]["revision"]) == REVISION_KEYS
+    assert body["symbol"]["fingerprint_algorithm"] is None
+    assert body["file_issue"] is None
     assert body["symbol"]["span"] == {"start_line": 1, "end_line": 3}
     assert body["symbol"]["kind"] == "function"
     assert body["symbol"]["language"] == "python"
@@ -283,9 +368,20 @@ def test_complete_project_inspection_key_sets_and_enum_values(
     assert decision["approval_stale"] is False
     assert StatusReason.APPROVAL_CURRENT.value in decision["status_reasons"]
     assert decision["warnings"] == ["source_technically_superseded"]
-    assert set(decision["implementation"]) == {"link_id", "freshness", "created_at"}
-    assert decision["implementation"]["link_id"] == names.link_current
-    assert decision["implementation"]["freshness"] == "current"
+    implementation = decision["implementation"]
+    assert set(implementation) == IMPLEMENTATION_KEYS
+    assert implementation["link_id"] == names.link_current
+    assert implementation["freshness"] == "current"
+    assert implementation["freshness_reason"] == "unchanged"
+    assert set(implementation["linked_symbol"]) == LOCATION_KEYS
+    assert implementation["linked_symbol"]["symbol_id"] == names.symbol_current
+    assert implementation["linked_symbol"]["revision_sequence"] == 1
+    assert implementation["current_symbol"]["revision_sequence"] == 2
+    assert implementation["current_symbol"]["qualified_name"] == "estimate_amplitude"
+    assert implementation["last_seen_symbol"] == implementation["current_symbol"]
+    assert implementation["lost_in_revision_sequence"] is None
+    assert implementation["candidates"] == []
+    assert implementation["file_issue"] is None
 
     support, context = decision["evidence"]
     for item in (support, context):
@@ -348,6 +444,8 @@ def test_complete_project_test_and_review_details(
     assert direct["latest"]["is_latest_revision"] is False
     (dd,) = moved["decisions"]
     assert dd["implementation"]["freshness"] == "moved"
+    assert dd["implementation"]["freshness_reason"] == "relocated"
+    assert dd["implementation"]["current_symbol"]["file_path"] == "src/reco/calibration.py"
     assert dd["evidence"][0]["version"]["authority_letter"] == "E"
     assert dd["evidence"][0]["asserted_by"] == "automated"
     assert dd["evidence"][0]["claim"]["extracted_by"] == "automated"
@@ -364,6 +462,10 @@ def test_complete_project_test_and_review_details(
     (de,) = orphaned["decisions"]
     assert de["status"] == "rejected"
     assert de["implementation"]["freshness"] == "orphaned"
+    assert de["implementation"]["freshness_reason"] == "removed"
+    assert de["implementation"]["lost_in_revision_sequence"] == 2
+    assert de["implementation"]["current_symbol"] is None
+    assert de["implementation"]["last_seen_symbol"]["symbol_id"] == names.symbol_orphaned
     (rejection,) = de["reviews"]
     assert rejection["verdict"] == "rejected"
     assert rejection["is_current"] is True
@@ -384,6 +486,131 @@ def test_a_stale_approval_is_shown_as_not_current() -> None:
     assert [(item["id"], item["is_current"]) for item in decision["reviews"]] == [
         (names.approval_da, False)
     ]
+
+
+def test_lineage_fields_for_algorithm_change_and_ambiguous_relocation() -> None:
+    app = create_app(clock=StepClock(), ids=CountingIdFactory())
+    service: ProvenanceService = app.state.provenance_service
+    names = build_complete_real_project(service)
+    estimators = "src/reco/estimators.py"
+    digest = "d" * 64
+    calibrate = SymbolDraft(
+        Language.PYTHON,
+        SymbolKind.FUNCTION,
+        "calibrate",
+        "src/reco/calibration.py",
+        SourceSpan(1, 4),
+        fingerprint(3),
+        FingerprintAlgorithm.PYTHON_AST_1,
+    )
+    rev3 = service.record_workspace_revision(
+        names.project,
+        vcs_ref="fixture-rev-3",
+        symbols=[calibrate],
+        symbols_indexed=True,
+        file_issues=[FileIssue(estimators, FileIssueKind.SYNTAX_ERROR)],
+        source_digest=digest,
+    )
+    rev4 = service.record_workspace_revision(
+        names.project,
+        vcs_ref="fixture-rev-4",
+        symbols=[
+            calibrate,
+            *(
+                SymbolDraft(
+                    Language.PYTHON,
+                    SymbolKind.FUNCTION,
+                    name,
+                    estimators,
+                    SourceSpan(1, 3),
+                    fingerprint(1),
+                )
+                for name in ("estimate_amplitude_b", "estimate_amplitude_a")
+            ),
+        ],
+        symbols_indexed=True,
+    )
+    with TestClient(app) as client:
+        listing = _symbols(client, names.project)
+        body = _inspection(client, names.project, names.symbol_current)
+        calibrated = _inspection(client, names.project, rev3.symbol_ids[0])
+
+    # The rev3 symbol carries the algorithm id; its revision carries the digest and issue.
+    assert calibrated["symbol"]["fingerprint_algorithm"] == FingerprintAlgorithm.PYTHON_AST_1.value
+    assert calibrated["symbol"]["revision"]["source_digest"] == digest
+    assert calibrated["symbol"]["revision"]["file_issue_count"] == 1
+    assert calibrated["file_issue"] is None
+    (dd,) = calibrated["decisions"]
+    # rev2 had no algorithm; rev4 has python-ast/1, so the fingerprints do not compare.
+    assert dd["implementation"]["freshness"] == "unknown"
+    assert dd["implementation"]["freshness_reason"] == "algorithm_changed"
+
+    # rev4 parses estimators.py again: two plausible equal-fingerprint candidates appear.
+    assert listing["revision"]["id"] == rev4.revision_id
+    assert listing["revision"]["file_issue_count"] == 0
+    assert listing["file_issues"] == []
+    assert body["file_issue"] is None
+    (da,) = body["decisions"]
+    implementation = da["implementation"]
+    assert implementation["freshness"] == "orphaned"
+    assert implementation["freshness_reason"] == "ambiguous_relocation"
+    assert implementation["current_symbol"] is None
+    assert implementation["lost_in_revision_sequence"] == 4
+    assert [item["qualified_name"] for item in implementation["candidates"]] == [
+        "estimate_amplitude_a",
+        "estimate_amplitude_b",
+    ]
+    for item in implementation["candidates"]:
+        assert set(item) == LOCATION_KEYS
+        assert item["revision_sequence"] == 4
+    assert implementation["file_issue"] is None
+    health = {item["link_id"]: item for item in listing["links"]}
+    assert health[names.link_current]["freshness_reason"] == "ambiguous_relocation"
+    assert health[names.link_current]["current_symbol"] is None
+
+
+def test_file_not_parsed_reports_the_file_issue() -> None:
+    app = create_app(clock=StepClock(), ids=CountingIdFactory())
+    service: ProvenanceService = app.state.provenance_service
+    names = build_complete_real_project(service)
+    estimators = "src/reco/estimators.py"
+    service.record_workspace_revision(
+        names.project,
+        vcs_ref="fixture-rev-3",
+        symbols=[
+            SymbolDraft(
+                Language.PYTHON,
+                SymbolKind.FUNCTION,
+                "calibrate",
+                "src/reco/calibration.py",
+                None,
+                fingerprint(3),
+            ),
+        ],
+        symbols_indexed=True,
+        file_issues=[FileIssue(estimators, FileIssueKind.TOO_LARGE)],
+    )
+    with TestClient(app) as client:
+        listing = _symbols(client, names.project)
+        body = _inspection(client, names.project, names.symbol_stale)
+    assert listing["file_issues"] == [{"file_path": estimators, "kind": "too_large"}]
+    assert listing["revision"]["file_issue_count"] == 1
+    assert body["file_issue"] == FileIssueKind.TOO_LARGE.value
+    (db,) = body["decisions"]
+    implementation = db["implementation"]
+    assert implementation["freshness"] == "unknown"
+    assert implementation["freshness_reason"] == "file_not_parsed"
+    assert implementation["file_issue"] == "too_large"
+    assert implementation["current_symbol"] is None
+    assert implementation["last_seen_symbol"]["revision_sequence"] == 2
+    assert implementation["lost_in_revision_sequence"] is None
+    reasons = {item["link_id"]: item["freshness_reason"] for item in listing["links"]}
+    assert reasons == {
+        names.link_current: "file_not_parsed",
+        names.link_stale: "file_not_parsed",
+        names.link_moved: "relocated",
+        names.link_orphaned: "removed",
+    }
 
 
 def test_unknown_symbol_in_known_project_is_not_found(client: TestClient) -> None:
@@ -449,6 +676,18 @@ def test_new_operations_are_listed_as_get_only_api_routes() -> None:
     assert not {(path, method) for path, method in operations if path in NEW_PATHS} - {
         (path, "GET") for path in NEW_PATHS
     }
+
+
+def test_symbol_index_adds_no_route_and_no_write_method() -> None:
+    """M2 indexing has no HTTP trigger: the project route set stays exactly GET-only."""
+    operations = {
+        (route.path, method)
+        for route in create_app().routes
+        if isinstance(route, APIRoute) and route.path.startswith("/api/v1/projects")
+        for method in route.methods or set()
+    }
+    assert operations == {(path, "GET") for path in NEW_PATHS}
+    assert not any("index" in path for path, _ in operations)
 
 
 @pytest.mark.parametrize(

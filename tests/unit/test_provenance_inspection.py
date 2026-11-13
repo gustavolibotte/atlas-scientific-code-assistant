@@ -9,6 +9,7 @@ from provenance_builders import (
     ENVIRONMENT,
     CompleteProject,
     build_complete_real_project,
+    fingerprint,
     make_service,
 )
 
@@ -17,6 +18,7 @@ from asca.application.inspection import (
     FunctionInspection,
     InspectionWarning,
     inspect_function,
+    link_health,
     list_symbols,
 )
 from asca.application.provenance import DecisionDraft, ProvenanceService, RunDraft, SymbolDraft
@@ -28,6 +30,9 @@ from asca.domain.provenance import (
     CodeSymbol,
     Currency,
     DecisionStatus,
+    FileIssue,
+    FileIssueKind,
+    FreshnessReason,
     IdKind,
     Language,
     LinkFreshness,
@@ -536,7 +541,33 @@ def test_conflicting_evidential_status_warns_when_not_approved() -> None:
     assert W.DECISION_NOT_REVIEWED in view.warnings
 
 
-def test_symbol_without_links_warns_no_linked_decision(
+def test_symbol_without_links_warns_no_linked_decision() -> None:
+    service, _, names = _complete()
+    service.record_workspace_revision(
+        names.project,
+        vcs_ref="fixture-rev-3",
+        symbols=[
+            SymbolDraft(
+                Language.PYTHON,
+                SymbolKind.FUNCTION,
+                "unlinked_helper",
+                "src/reco/helpers.py",
+                None,
+                fingerprint(99),
+            ),
+        ],
+        symbols_indexed=True,
+    )
+    graph = service.load(names.project)
+    helper = _symbol_named(graph, "unlinked_helper")
+    inspection = inspect_function(graph, helper.id)
+    assert inspection.decisions == ()
+    assert inspection.direct_tests == ()
+    assert inspection.warnings == (W.NO_LINKED_DECISION,)
+    assert inspection.file_issue is None
+
+
+def test_moved_symbol_shows_the_carried_link(
     complete: tuple[ProvenanceGraph, CompleteProject],
 ) -> None:
     graph, names = complete
@@ -546,7 +577,141 @@ def test_symbol_without_links_warns_no_linked_decision(
         if graph.get(CodeSymbol, item).file_path == "src/reco/calibration.py"
     )
     inspection = inspect_function(graph, calibration)
+    assert inspection.symbol.id == calibration
+    assert inspection.revision.id == names.revision2
+    (view,) = inspection.decisions
+    assert view.decision.id == names.dd
+    assert view.implementation_link.id == names.link_moved
+    assert view.freshness is LinkFreshness.MOVED
+    assert W.LINK_MOVED in view.warnings
+    trace = view.trace
+    assert trace.freshness is view.freshness
+    assert trace.reason is FreshnessReason.RELOCATED
+    assert trace.relocated
+    assert trace.origin.id == names.symbol_moved
+    assert trace.origin.file_path == "src/reco/estimators.py"
+    assert trace.current is not None and trace.current.id == calibration
+    assert trace.last_seen.id == calibration
+    assert trace.evaluated_revision is not None
+    assert trace.evaluated_revision.id == names.revision2
+    assert trace.lost_in_revision is None
+    assert trace.candidates == ()
+    assert trace.successors == (calibration,)
+    # The symbol-level test linked to the origin follows the symbol to its new file.
+    assert [item.test_case.id for item in inspection.direct_tests] == [names.test_unit]
+    # Inspecting the origin shows the same decision with the same trace.
+    origin = inspect_function(graph, names.symbol_moved)
+    assert [item.trace for item in origin.decisions] == [trace]
+
+
+def test_traces_carry_reasons_for_every_complete_project_link(
+    complete: tuple[ProvenanceGraph, CompleteProject],
+) -> None:
+    graph, names = complete
+    reasons = {
+        attribute: inspect_function(graph, getattr(names, attribute)).decisions[0].trace.reason
+        for attribute in ("symbol_current", "symbol_stale", "symbol_moved", "symbol_orphaned")
+    }
+    assert reasons == {
+        "symbol_current": FreshnessReason.UNCHANGED,
+        "symbol_stale": FreshnessReason.CONTENT_CHANGED,
+        "symbol_moved": FreshnessReason.RELOCATED,
+        "symbol_orphaned": FreshnessReason.REMOVED,
+    }
+    orphaned = inspect_function(graph, names.symbol_orphaned).decisions[0].trace
+    assert orphaned.current is None
+    assert orphaned.lost_in_revision is not None
+    assert orphaned.lost_in_revision.id == names.revision2
+    assert orphaned.last_seen.id == names.symbol_orphaned
+
+
+def test_a_reused_name_does_not_inherit_an_orphaned_link() -> None:
+    service, _, names = _complete()
+    revision = service.record_workspace_revision(
+        names.project,
+        vcs_ref="fixture-rev-3",
+        symbols=[
+            SymbolDraft(
+                Language.PYTHON,
+                SymbolKind.METHOD,
+                "LegacyFit.fit",
+                "src/reco/estimators.py",
+                None,
+                fingerprint(40),
+            ),
+        ],
+        symbols_indexed=True,
+    )
+    graph = service.load(names.project)
+    (reused,) = revision.symbol_ids
+    inspection = inspect_function(graph, reused)
     assert inspection.decisions == ()
+    assert W.NO_LINKED_DECISION in inspection.warnings
+    (summary,) = list_symbols(graph)
+    assert (summary.symbol.id, summary.decision_count, summary.worst_freshness) == (
+        reused,
+        0,
+        None,
+    )
+    # The original link stays orphaned: a lost link is never resurrected.
+    original = inspect_function(graph, names.symbol_orphaned).decisions[0]
+    assert original.freshness is LinkFreshness.ORPHANED
+    assert original.trace.lost_in_revision is not None
+    assert original.trace.lost_in_revision.id == names.revision2
+
+
+def test_file_issue_on_inspection() -> None:
+    service, _, names = _complete()
+    estimators = "src/reco/estimators.py"
+    revision3 = service.record_workspace_revision(
+        names.project,
+        vcs_ref="fixture-rev-3",
+        symbols=[
+            SymbolDraft(
+                Language.PYTHON,
+                SymbolKind.FUNCTION,
+                "calibrate",
+                "src/reco/calibration.py",
+                None,
+                fingerprint(3),
+            ),
+        ],
+        symbols_indexed=True,
+        file_issues=[FileIssue(estimators, FileIssueKind.SYNTAX_ERROR)],
+    )
+    graph = service.load(names.project)
+    inspection = inspect_function(graph, names.symbol_current)
+    assert inspection.file_issue == FileIssue(estimators, FileIssueKind.SYNTAX_ERROR)
+    (view,) = inspection.decisions
+    assert view.freshness is LinkFreshness.UNKNOWN
+    assert view.trace.reason is FreshnessReason.FILE_NOT_PARSED
+    assert view.trace.current is None
+    rev2_estimate = next(
+        item
+        for item in names.revision2_symbols
+        if graph.get(CodeSymbol, item).qualified_name == "estimate_amplitude"
+    )
+    # The last known symbol is carried forward, so the link is unknown, never orphaned.
+    assert view.trace.last_seen.id == rev2_estimate
+    assert W.LINK_UNKNOWN_FRESHNESS in view.warnings
+    assert inspect_function(graph, rev2_estimate).file_issue == inspection.file_issue
+
+    (calibration,) = revision3.symbol_ids
+    assert inspect_function(graph, calibration).file_issue is None
+    assert [item.symbol.file_path for item in list_symbols(graph)] == ["src/reco/calibration.py"]
+
+
+def test_file_issue_is_none_without_an_indexed_revision() -> None:
+    service = make_service()
+    project = service.create_project("Unindexed fixture project", is_synthetic=False)
+    revision = service.record_workspace_revision(
+        project,
+        vcs_ref=None,
+        symbols=[SymbolDraft(Language.PYTHON, SymbolKind.FUNCTION, "f", "src/f.py")],
+        symbols_indexed=False,
+    )
+    inspection = inspect_function(service.load(project), revision.symbol_ids[0])
+    assert inspection.file_issue is None
     assert inspection.warnings == (W.NO_LINKED_DECISION,)
 
 
@@ -608,7 +773,7 @@ def test_list_symbols_worst_freshness_and_decision_count(
         for item in summaries
     }
     assert table == {
-        ("src/reco/calibration.py", "calibrate"): (0, None),
+        ("src/reco/calibration.py", "calibrate"): (1, LinkFreshness.MOVED),
         ("src/reco/estimators.py", "estimate_amplitude"): (1, LinkFreshness.CURRENT),
         ("src/reco/estimators.py", "subtract_pedestal"): (1, LinkFreshness.STALE),
     }
@@ -650,3 +815,68 @@ def test_list_symbols_without_revisions_is_empty() -> None:
     service = make_service()
     project = service.create_project("Empty fixture project", is_synthetic=False)
     assert list_symbols(service.load(project)) == ()
+
+
+# ---------------------------------------------------------------------- link_health
+
+
+def test_link_health_order() -> None:
+    service, graph, names = _complete()
+    pid = names.project
+    rev2_estimate = next(
+        item
+        for item in names.revision2_symbols
+        if graph.get(CodeSymbol, item).qualified_name == "estimate_amplitude"
+    )
+    second_current = service.link_implementation(pid, names.da, rev2_estimate)
+    dg = service.propose_decision(
+        pid, DecisionDraft(title="Dg late stale", statement="Fixture.", rationale="Fixture.")
+    )
+    second_stale = service.link_implementation(pid, dg, names.symbol_stale)
+    late = service.record_workspace_revision(
+        pid,
+        vcs_ref="unindexed",
+        symbols=[SymbolDraft(Language.PYTHON, SymbolKind.FUNCTION, "late", "src/reco/late.py")],
+        symbols_indexed=False,
+    )
+    unknown = service.link_implementation(pid, names.df, late.symbol_ids[0])
+    graph = service.load(pid)
+    health = link_health(graph)
+    assert [item.link.id for item in health] == [
+        names.link_orphaned,
+        names.link_stale,
+        second_stale,
+        names.link_moved,
+        unknown,
+        names.link_current,
+        second_current,
+    ]
+    assert [item.trace.freshness for item in health] == [
+        LinkFreshness.ORPHANED,
+        LinkFreshness.STALE,
+        LinkFreshness.STALE,
+        LinkFreshness.MOVED,
+        LinkFreshness.UNKNOWN,
+        LinkFreshness.CURRENT,
+        LinkFreshness.CURRENT,
+    ]
+    assert [item.decision.id for item in health] == [
+        names.de,
+        names.db,
+        dg,
+        names.dd,
+        names.df,
+        names.da,
+        names.da,
+    ]
+    assert health[4].trace.reason is FreshnessReason.NOT_FINGERPRINTED
+    assert all(item.link.decision_id == item.decision.id for item in health)
+    assert all(item.trace.origin.id == item.link.symbol_id for item in health)
+    assert link_health(service.load(pid)) == health
+
+
+def test_link_health_is_empty_without_links() -> None:
+    service = make_service()
+    project = service.create_project("Empty fixture project", is_synthetic=False)
+    assert link_health(service.load(project)) == ()
+    assert link_health(_demo_graph())[0].trace.reason is FreshnessReason.NOT_FINGERPRINTED

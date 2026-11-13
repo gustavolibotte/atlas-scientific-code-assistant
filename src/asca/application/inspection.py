@@ -1,7 +1,9 @@
 """Function inspector read model: what a code symbol implements and how well it is backed.
 
 Pure functions over a loaded :class:`ProvenanceGraph`. Nothing here writes, and every
-result is deterministic for a given graph.
+result is deterministic for a given graph. Links and symbol-level tests attach to a
+symbol by lineage (:class:`SymbolLineage`): a link follows its symbol across renames and
+moves, and a symbol that merely reuses an old name does not inherit the old links.
 """
 
 from collections.abc import Iterable
@@ -20,6 +22,7 @@ from asca.domain.provenance import (
     DecisionStatus,
     DecisionStatusReport,
     EvidenceLink,
+    FileIssue,
     ImplementationLink,
     LinkFreshness,
     Project,
@@ -32,6 +35,8 @@ from asca.domain.provenance import (
     StatusReason,
     SupersessionDimension,
     SupersessionNotice,
+    SymbolLineage,
+    SymbolTrace,
     TestCase,
     TestOutcome,
     TestResult,
@@ -41,7 +46,6 @@ from asca.domain.provenance import (
     derive_status,
     is_countable,
     latest_result,
-    link_freshness,
 )
 
 
@@ -132,6 +136,7 @@ class DecisionView:
     status: DecisionStatusReport
     implementation_link: ImplementationLink
     freshness: LinkFreshness
+    trace: SymbolTrace
     evidence: tuple[EvidenceView, ...]
     tests: tuple[TestView, ...]
     approvals: tuple[Approval, ...]
@@ -147,6 +152,7 @@ class FunctionInspection:
     decisions: tuple[DecisionView, ...]
     direct_tests: tuple[TestView, ...]
     warnings: tuple[InspectionWarning, ...]
+    file_issue: FileIssue | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +160,15 @@ class SymbolSummary:
     symbol: CodeSymbol
     decision_count: int
     worst_freshness: LinkFreshness | None
+
+
+@dataclass(frozen=True, slots=True)
+class LinkHealth:
+    """One implementation link, its decision and where its symbol went."""
+
+    link: ImplementationLink
+    decision: ScientificDecision
+    trace: SymbolTrace
 
 
 def _ordered(warnings: Iterable[InspectionWarning]) -> tuple[InspectionWarning, ...]:
@@ -252,11 +267,15 @@ def _decision_warnings(
 
 
 def _decision_view(
-    graph: ProvenanceGraph, link: ImplementationLink, direct_tests: tuple[TestView, ...]
+    graph: ProvenanceGraph,
+    lineage: SymbolLineage,
+    link: ImplementationLink,
+    direct_tests: tuple[TestView, ...],
 ) -> DecisionView:
     decision = graph.get(ScientificDecision, link.decision_id)
     report = derive_status(graph, decision.id)
-    freshness = link_freshness(graph, link)
+    trace = lineage.resolve(link)
+    freshness = trace.freshness
     evidence_links = sorted(
         graph.links_for(decision.id),
         key=lambda item: (_STANCE_ORDER[item.stance], item.created_at, item.id),
@@ -271,6 +290,7 @@ def _decision_view(
         status=report,
         implementation_link=link,
         freshness=freshness,
+        trace=trace,
         evidence=evidence,
         tests=tests,
         approvals=approvals,
@@ -278,33 +298,47 @@ def _decision_view(
     )
 
 
+def _attached_links(
+    graph: ProvenanceGraph, lineage: SymbolLineage, symbol: CodeSymbol
+) -> tuple[ImplementationLink, ...]:
+    """Implementation links whose symbol is ``symbol`` or shares its lineage."""
+    return tuple(
+        link for link in graph.implementation_links if lineage.related(link.symbol_id, symbol.id)
+    )
+
+
+def _link_order(graph: ProvenanceGraph, link: ImplementationLink) -> tuple[object, ...]:
+    decision = graph.get(ScientificDecision, link.decision_id)
+    return (decision.created_at, decision.id, link.created_at, link.id)
+
+
 def inspect_function(graph: ProvenanceGraph, symbol_id: str) -> FunctionInspection:
-    """Inspect one symbol; links on the same key in any revision are included.
+    """Inspect one symbol; links and symbol tests on any symbol of its lineage are included.
 
     Raises ``RecordNotFoundError`` for an unknown symbol id.
     """
     symbol = graph.get(CodeSymbol, symbol_id)
     revision = graph.get(WorkspaceRevision, symbol.revision_id)
-    same_key = {item.id for item in graph.symbols if item.key == symbol.key}
+    lineage = SymbolLineage(graph)
     direct_tests = _test_views(
         graph,
-        (item.test_case_id for item in graph.verification_links if item.symbol_id in same_key),
+        (
+            item.test_case_id
+            for item in graph.verification_links
+            if item.symbol_id is not None and lineage.related(item.symbol_id, symbol.id)
+        ),
     )
-    links = graph.implementation_links_for_key(symbol.key)
-
-    def link_order(link: ImplementationLink) -> tuple[object, ...]:
-        decision = graph.get(ScientificDecision, link.decision_id)
-        return (decision.created_at, decision.id, link.created_at, link.id)
-
-    decisions = tuple(
-        _decision_view(graph, link, direct_tests) for link in sorted(links, key=link_order)
+    links = sorted(
+        _attached_links(graph, lineage, symbol), key=lambda link: _link_order(graph, link)
     )
+    decisions = tuple(_decision_view(graph, lineage, link, direct_tests) for link in links)
     warnings: set[InspectionWarning] = set()
     if graph.project.is_synthetic:
         warnings.add(InspectionWarning.SYNTHETIC_PROJECT)
     if not links:
         warnings.add(InspectionWarning.NO_LINKED_DECISION)
     warnings.update(_test_warnings(direct_tests))
+    indexed = lineage.latest_indexed
     return FunctionInspection(
         project=graph.project,
         project_revision=graph.revision,
@@ -313,6 +347,7 @@ def inspect_function(graph: ProvenanceGraph, symbol_id: str) -> FunctionInspecti
         decisions=decisions,
         direct_tests=direct_tests,
         warnings=_ordered(warnings),
+        file_issue=None if indexed is None else indexed.issue_for(symbol.file_path),
     )
 
 
@@ -321,15 +356,39 @@ def list_symbols(graph: ProvenanceGraph) -> tuple[SymbolSummary, ...]:
     revision = graph.latest_revision()
     if revision is None:
         return ()
+    lineage = SymbolLineage(graph)
     summaries: list[SymbolSummary] = []
     for symbol in sorted(
         graph.symbols_in(revision.id), key=lambda item: (item.file_path, item.qualified_name)
     ):
-        links = graph.implementation_links_for_key(symbol.key)
+        links = _attached_links(graph, lineage, symbol)
         worst = max(
-            (link_freshness(graph, link) for link in links),
+            (lineage.resolve(link).freshness for link in links),
             key=_FRESHNESS_SEVERITY.__getitem__,
             default=None,
         )
         summaries.append(SymbolSummary(symbol, len(links), worst))
     return tuple(summaries)
+
+
+def link_health(graph: ProvenanceGraph) -> tuple[LinkHealth, ...]:
+    """Every implementation link with its trace, the least healthy first.
+
+    Ordered by freshness severity (orphaned, stale, moved, unknown, current), then by
+    decision creation time and id, then by link creation time and id.
+    """
+    lineage = SymbolLineage(graph)
+    entries = [
+        LinkHealth(link, graph.get(ScientificDecision, link.decision_id), lineage.resolve(link))
+        for link in graph.implementation_links
+    ]
+    entries.sort(
+        key=lambda item: (
+            -_FRESHNESS_SEVERITY[item.trace.freshness],
+            item.decision.created_at,
+            item.decision.id,
+            item.link.created_at,
+            item.link.id,
+        )
+    )
+    return tuple(entries)
