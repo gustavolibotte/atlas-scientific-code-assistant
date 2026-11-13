@@ -19,6 +19,7 @@ from provenance_strategies import Script, command_scripts, replay
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 from sqlalchemy.orm import sessionmaker
+from store_workers import open_store_at_barrier
 
 from asca.application.demo import DEMO_PROJECT_ID, seed_synthetic_demo
 from asca.application.errors import (
@@ -425,19 +426,8 @@ def test_concurrent_loads_on_the_shared_in_memory_store_return_the_stored_graph(
     assert [item for item in outcomes if item != reference] == []
 
 
-def _open_store_at_barrier(url: str, barrier: object, results: object) -> None:
-    barrier.wait()  # type: ignore[attr-defined]
-    try:
-        store = open_sqlite_store(url)
-    except Exception as error:
-        results.put(f"{type(error).__name__}: {error}")  # type: ignore[attr-defined]
-        return
-    store.dispose()
-    results.put("ok")  # type: ignore[attr-defined]
-
-
 def test_concurrent_first_start_on_a_fresh_file_migrates_once(tmp_path: Path) -> None:
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     processes_per_trial = 4
     outcomes: list[str] = []
     for trial in range(3):
@@ -445,7 +435,7 @@ def test_concurrent_first_start_on_a_fresh_file_migrates_once(tmp_path: Path) ->
         barrier = context.Barrier(processes_per_trial)
         results = context.Queue()
         workers = [
-            context.Process(target=_open_store_at_barrier, args=(url, barrier, results))
+            context.Process(target=open_store_at_barrier, args=(url, barrier, results))
             for _ in range(processes_per_trial)
         ]
         for worker in workers:
