@@ -18,7 +18,7 @@ from asca.infrastructure.indexing.python_symbols import PythonAstExtractor
 
 pytestmark = pytest.mark.contract
 
-GOLDEN = Path(__file__).parent / "golden" / "fingerprints" / "python_ast_1"
+GOLDEN = Path(__file__).parent / "fingerprint_golden" / "python_ast_1"
 
 REFERENCE_VECTORS = [
     ("", "__module__", "e6d4228a801836644b1c293d8368d762b122f93ca36c0c5d31464c15329dd87a"),
