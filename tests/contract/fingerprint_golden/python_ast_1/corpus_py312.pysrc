@@ -1,0 +1,22 @@
+"""PEP 695 and PEP 701 corpus (Python 3.12 and later)."""
+
+
+def first[T](items: list[T]) -> T:
+    return items[0]
+
+
+def plain(items: "list[T]") -> "T":
+    return items[0]
+
+
+class Box[T: (int, str), *Ts, **P]:
+    def get[U: float](self, default: U) -> T | U:
+        return default
+
+
+type Pair[K] = tuple[K, K]
+type Alias = int
+
+
+def quoted(record):
+    return f"{record["key"]!r:>{10}}"

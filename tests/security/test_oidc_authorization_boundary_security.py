@@ -30,6 +30,10 @@ def test_only_read_only_foundation_api_routes_are_exposed() -> None:
         ("/api/v1/system/capabilities", "GET"),
         ("/api/v1/identity/status", "GET"),
         ("/api/v1/demo/trace", "GET"),
+        ("/api/v1/projects", "GET"),
+        ("/api/v1/projects/{project_id}/symbols", "GET"),
+        ("/api/v1/projects/{project_id}/symbols/{symbol_id}/inspection", "GET"),
+        ("/api/v1/projects/{project_id}/exports/{artifact}", "GET"),
     }
 
 

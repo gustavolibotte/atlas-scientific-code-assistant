@@ -1,0 +1,45 @@
+"""Module docstring."""
+import math
+from .base import Base as B
+
+PEDESTAL = 3
+
+
+def estimate_amplitude(samples, weights=(1, 2.0, True), *, scale: float = 1e3) -> float:
+    """Weighted sum."""
+    total = sum(s * w for s, w in zip(samples, weights))
+    return total / scale if scale else f"{total!r:>{10}}"
+
+
+async def fetch(n):
+    if n <= 0:
+        return None
+    return await fetch(n - 1)
+
+
+class Fit(B):
+    """A fit."""
+
+    def __init__(self, x):
+        super(Fit, self).__init__()
+        self.x = x
+
+    @property
+    def value(self):
+        return self.x
+
+    @value.setter
+    def value(self, v):
+        self.x = v
+
+    class Inner:
+        def m(self):
+            return Fit(1)
+
+
+if math.pi > 3:
+    def helper():
+        pass
+else:
+    def helper():
+        ...

@@ -1,0 +1,49 @@
+{
+  "audience": "public",
+  "environments": [],
+  "generator": {
+    "name": "asca",
+    "version": "0.0.0-test"
+  },
+  "policy_note": "Evidence categories and access classes are ASCA project policy, not an official ATLAS classification. Reviews recorded in ASCA are not ATLAS collaboration approval.",
+  "project": {
+    "id": "prj_b79e44d485f857621b42922617a467a3",
+    "is_synthetic": true,
+    "revision": 19,
+    "title": "Synthetic demonstration project"
+  },
+  "runs": [],
+  "schema": "urn:asca:schema:validation_report:v1",
+  "schema_version": "1.0.0",
+  "summary": {
+    "latest_outcomes": {
+      "error": 0,
+      "failed": 0,
+      "not_run": 1,
+      "passed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0
+    },
+    "run_count": 0,
+    "test_case_count": 1
+  },
+  "synthetic_notice": "Synthetic demonstration: no real source, code or test was consulted.",
+  "test_cases": [
+    {
+      "created_at": "2026-11-12T00:00:00.000000Z",
+      "description": "Numerical validation — illustrative and not executed",
+      "id": "tst_6a36d057047f277ade13ec8d1e21cc83",
+      "kind": "numerical",
+      "latest": null,
+      "node_id": "tests/test_estimators.py::test_illustrative",
+      "verifies": {
+        "decision_ids": [
+          "dec_46bd8fc57f30e9a34ef8f9f7ac18ab65"
+        ],
+        "symbol_ids": []
+      }
+    }
+  ],
+  "withheld": []
+}

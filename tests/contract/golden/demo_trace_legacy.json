@@ -1,0 +1,42 @@
+{
+  "is_synthetic": true,
+  "disclaimer": "Synthetic UI demonstration; no CERN source, code, or test was consulted.",
+  "decision": {
+    "id": "dec_46bd8fc57f30e9a34ef8f9f7ac18ab65",
+    "statement": "Choose an estimator under an illustrative covariance assumption.",
+    "rationale": "Example decision, not an implemented or ATLAS-approved method.",
+    "evidence_ids": [
+      "clm_f372d13433331abbc074ec9e8f8f8048"
+    ],
+    "code_symbol_ids": [
+      "sym_339fc20265d95f5908e478c6d3e8a7f2"
+    ],
+    "verification_ids": [
+      "tst_6a36d057047f277ade13ec8d1e21cc83"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "clm_f372d13433331abbc074ec9e8f8f8048",
+      "title": "Synthetic estimator note — no paper consulted",
+      "locator": "synthetic:demo-estimator-note v1 · section=2",
+      "authority": "unverified",
+      "is_real_source": false
+    }
+  ],
+  "symbols": [
+    {
+      "id": "sym_339fc20265d95f5908e478c6d3e8a7f2",
+      "qualified_name": "estimate_amplitude",
+      "file_path": "src/reconstruction/estimators.py",
+      "revision": "synthetic-demo"
+    }
+  ],
+  "verifications": [
+    {
+      "id": "tst_6a36d057047f277ade13ec8d1e21cc83",
+      "label": "Numerical validation — illustrative and not executed",
+      "state": "not_run"
+    }
+  ]
+}

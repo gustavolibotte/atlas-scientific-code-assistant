@@ -4,6 +4,6 @@ install:
 check:
 	uv run python scripts/run_checks.py
 api:
-	uv run uvicorn asca.api.main:create_app --factory --host 127.0.0.1 --port 8000 --reload
+	uv run uvicorn asca.api.main:create_app_from_environment --factory --host 127.0.0.1 --port 8000 --reload
 web:
 	cd apps/web && npm run dev

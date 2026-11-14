@@ -1,0 +1,100 @@
+{
+  "audience": "public",
+  "claims": [
+    {
+      "extracted_by": "human",
+      "id": "clm_f372d13433331abbc074ec9e8f8f8048",
+      "locator": [
+        {
+          "kind": "section",
+          "value": "2"
+        }
+      ],
+      "quote": "weighting the samples with the inverse noise covariance gives the minimum-variance linear unbiased amplitude estimate",
+      "recorded_at": "2026-11-12T00:00:00.000000Z",
+      "source_version_id": "ver_542e24c7619e3a534a6d8f04d967b7a9",
+      "statement": "Illustrative claim from synthetic text.",
+      "verification": {
+        "checks": [
+          {
+            "checked_at": "2026-11-12T00:00:00.000000Z",
+            "content_sha256": "df283cb1f525ae587d310e6e5d779f83d9bfe78cc919d3208f13c97781efb6c0",
+            "detail": null,
+            "method": "normalized_substring",
+            "outcome": "source_text_checked",
+            "sequence": 1
+          }
+        ],
+        "normalization_version": 1,
+        "state": "source_text_checked"
+      }
+    }
+  ],
+  "generator": {
+    "name": "asca",
+    "version": "0.0.0-test"
+  },
+  "policy_note": "Evidence categories and access classes are ASCA project policy, not an official ATLAS classification. Reviews recorded in ASCA are not ATLAS collaboration approval.",
+  "project": {
+    "id": "prj_b79e44d485f857621b42922617a467a3",
+    "is_synthetic": true,
+    "revision": 19,
+    "title": "Synthetic demonstration project"
+  },
+  "schema": "urn:asca:schema:evidence_manifest:v1",
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "id": "src_a0d1bc788839a7e3b6db854c5b07bd99",
+      "is_synthetic": true,
+      "persistent_id": {
+        "scheme": "synthetic",
+        "value": "synthetic:demo-estimator-note"
+      },
+      "title": "Synthetic estimator note — no paper consulted",
+      "versions": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "authority": "working_material",
+          "authority_basis": null,
+          "authority_letter": "D",
+          "content_sha256": "df283cb1f525ae587d310e6e5d779f83d9bfe78cc919d3208f13c97781efb6c0",
+          "currency": {
+            "scientific": "current",
+            "technical": "current"
+          },
+          "id": "ver_542e24c7619e3a534a6d8f04d967b7a9",
+          "published_on": null,
+          "recorded_at": "2026-11-12T00:00:00.000000Z",
+          "retrieved_at": "2026-11-12T00:00:00.000000Z",
+          "superseded_by": [],
+          "version_label": "v1"
+        }
+      ]
+    }
+  ],
+  "synthetic_notice": "Synthetic demonstration: no real source, code or test was consulted.",
+  "withheld": [
+    {
+      "access_class": "internal",
+      "id": "clm_c55df3fac0f471e97e09ab2c8f7d074b",
+      "kind": "claim"
+    },
+    {
+      "access_class": "internal",
+      "id": "src_7106af8ad78624305122a5120fb7d851",
+      "kind": "source"
+    },
+    {
+      "access_class": "internal",
+      "id": "ver_577eb95379384d57f664aedd64ea53d1",
+      "kind": "source_version"
+    },
+    {
+      "access_class": "internal",
+      "id": "ver_b13fe4d73a6681dd3283540bd7c8c64b",
+      "kind": "source_version"
+    }
+  ]
+}

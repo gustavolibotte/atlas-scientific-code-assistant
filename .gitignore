@@ -26,3 +26,6 @@ diagnostics/
 # Generated Vite configuration artifacts
 /apps/web/vite.config.js
 /apps/web/vite.config.d.ts
+
+# Local provenance database (default ASCA_DATABASE_URL)
+.asca/

@@ -28,10 +28,21 @@ be pre-generated in an offline build environment. Never commit `.env` or tokens.
 
 ```bash
 uv sync --all-groups
-uv run uvicorn asca.api.main:create_app --factory --host 127.0.0.1 --port 8000
+uv run uvicorn asca.api.main:create_app_from_environment --factory --host 127.0.0.1 --port 8000
 ```
 
 API docs: http://127.0.0.1:8000/docs
+
+Provenance is stored in SQLite. `ASCA_DATABASE_URL` selects the database; the default is
+`sqlite+pysqlite:///./.asca/asca.db` (the `.asca/` directory is created with mode `0700` and is
+ignored by Git). Only `sqlite+pysqlite:///` URLs are supported, for example
+`ASCA_DATABASE_URL=sqlite+pysqlite:///:memory:` for a throwaway run. The schema is migrated on
+startup. Keep the API on `127.0.0.1`: it has no authentication.
+
+To preview the Python symbol index of a directory without writing anything, run
+`uv run python -m asca.infrastructure.indexing PATH`. It prints one JSON line with
+workspace-relative paths, qualified names, spans and fingerprints, never source text, and
+never imports or executes the indexed code.
 
 ## Start the UI
 
@@ -60,6 +71,7 @@ Failed or skipped checks must not be interpreted as successful checks.
 
 ## Documentation
 
+- [Roadmap v2](docs/roadmap.md) and [ADR 0037](docs/adr/0037-prioritize-evidence-to-code-vertical-slice.md)
 - [Architecture](docs/architecture/overview.md)
 - [Security](docs/security/security-model.md)
 - [Testing](docs/development/testing.md)
