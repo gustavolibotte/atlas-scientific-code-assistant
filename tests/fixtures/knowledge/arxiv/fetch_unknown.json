@@ -1,0 +1,37 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "arxiv",
+  "scenario": "fetch_unknown",
+  "synthetic": false,
+  "recorded_at": "2026-11-14T15:33:22Z",
+  "recorder": "asca-recorder/1",
+  "metadata_license": "CC0-1.0 (metadata)",
+  "terms_url": "https://info.arxiv.org/help/api/tou.html",
+  "sanitized": [
+    "summaries replaced with synthetic text",
+    "authors truncated to 3",
+    "affiliations and comments removed"
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://export.arxiv.org/api/query",
+    "params": [
+      [
+        "id_list",
+        "9912.99999"
+      ],
+      [
+        "max_results",
+        "1"
+      ]
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/atom+xml; charset=utf-8"
+    },
+    "body_text": "<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:opensearch=\"http://a9.com/-/spec/opensearch/1.1/\">\n  <id>https://arxiv.org/api/BrKeYvwoE0HOzV9UEttPuFx6Vpo</id>\n  <title>arXiv Query: search_query=&amp;id_list=9912.99999&amp;start=0&amp;max_results=1</title>\n  <updated>2026-11-14T15:31:52Z</updated>\n  <link href=\"https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=1&amp;id_list=9912.99999\" type=\"application/atom+xml\" />\n  <opensearch:itemsPerPage>1</opensearch:itemsPerPage>\n  <opensearch:totalResults>0</opensearch:totalResults>\n  <opensearch:startIndex>0</opensearch:startIndex>\n</feed>",
+    "body_sha256": "fc83899c756bfcca08c0ad1ff89dcb497765dbfe68f2acad6d58af074f6ac97b"
+  }
+}

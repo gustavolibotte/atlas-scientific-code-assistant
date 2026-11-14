@@ -1,0 +1,37 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "arxiv",
+  "scenario": "fetch_2109.05124v2",
+  "synthetic": false,
+  "recorded_at": "2026-11-14T15:33:18Z",
+  "recorder": "asca-recorder/1",
+  "metadata_license": "CC0-1.0 (metadata)",
+  "terms_url": "https://info.arxiv.org/help/api/tou.html",
+  "sanitized": [
+    "summaries replaced with synthetic text",
+    "authors truncated to 3",
+    "affiliations and comments removed"
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://export.arxiv.org/api/query",
+    "params": [
+      [
+        "id_list",
+        "2109.05124v2"
+      ],
+      [
+        "max_results",
+        "1"
+      ]
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/atom+xml; charset=utf-8"
+    },
+    "body_text": "<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:arxiv=\"http://arxiv.org/schemas/atom\" xmlns:opensearch=\"http://a9.com/-/spec/opensearch/1.1/\">\n  <id>https://arxiv.org/api/xKN8PM4CBMXiqNoPuc2euQl0Lp8</id>\n  <title>arXiv Query: search_query=&amp;id_list=2109.05124v2&amp;start=0&amp;max_results=1</title>\n  <updated>2026-11-14T15:24:53Z</updated>\n  <link href=\"https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=1&amp;id_list=2109.05124v2\" type=\"application/atom+xml\" />\n  <opensearch:itemsPerPage>1</opensearch:itemsPerPage>\n  <opensearch:totalResults>1</opensearch:totalResults>\n  <opensearch:startIndex>0</opensearch:startIndex>\n  <entry>\n    <id>http://arxiv.org/abs/2109.05124v2</id>\n    <title>Energy reconstruction in a liquid argon calorimeter cell using convolutional neural networks</title>\n    <updated>2021-11-10T03:45:39Z</updated>\n    <link href=\"https://arxiv.org/abs/2109.05124v2\" rel=\"alternate\" type=\"text/html\" />\n    <link href=\"https://arxiv.org/pdf/2109.05124v2\" rel=\"related\" type=\"application/pdf\" title=\"pdf\" />\n    <summary>Synthetic abstract replacing the original text of record 2109.05124v2 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.</summary>\n    <category term=\"physics.ins-det\" scheme=\"http://arxiv.org/schemas/atom\" />\n    <category term=\"hep-ex\" scheme=\"http://arxiv.org/schemas/atom\" />\n    <published>2021-09-10T22:13:54Z</published>\n    <arxiv:primary_category term=\"physics.ins-det\" />\n    <author>\n      <name>L. Polson</name>\n    </author>\n    <author>\n      <name>L. Kurchaninov</name>\n    </author>\n    <author>\n      <name>M. Lefebvre</name>\n    </author>\n    <arxiv:doi>10.1088/1748-0221/17/01/P01002</arxiv:doi>\n    <link rel=\"related\" href=\"https://doi.org/10.1088/1748-0221/17/01/P01002\" title=\"doi\" />\n  </entry>\n</feed>",
+    "body_sha256": "635431f4dc94250dc5580e0bbf384a4146a0eb1dc06e80a185464d3e944403fd"
+  }
+}

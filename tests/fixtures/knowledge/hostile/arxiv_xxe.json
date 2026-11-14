@@ -1,0 +1,45 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "arxiv",
+  "scenario": "xxe",
+  "synthetic": true,
+  "recorded_at": "2026-11-14T12:00:00Z",
+  "recorder": "asca-synthetic/1",
+  "metadata_license": "CC0-1.0 (metadata)",
+  "terms_url": "https://info.arxiv.org/help/api/tou.html",
+  "sanitized": [],
+  "request": {
+    "method": "GET",
+    "url": "https://export.arxiv.org/api/query",
+    "params": [
+      [
+        "max_results",
+        "5"
+      ],
+      [
+        "search_query",
+        "all:optimal AND all:filtering"
+      ],
+      [
+        "sortBy",
+        "relevance"
+      ],
+      [
+        "sortOrder",
+        "descending"
+      ],
+      [
+        "start",
+        "0"
+      ]
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/atom+xml; charset=utf-8"
+    },
+    "body_text": "<?xml version=\"1.0\"?>\n<!DOCTYPE feed [\n <!ENTITY xxe SYSTEM \"file:///etc/passwd\">\n]>\n<feed xmlns=\"http://www.w3.org/2005/Atom\"><entry><id>http://arxiv.org/abs/2109.05124v2</id><title>&xxe;</title></entry></feed>\n",
+    "body_sha256": "9f5f01f2f34b46a5b821a95bc481d701b7172e5a568b6f8d9748766dfbea6a99"
+  }
+}
