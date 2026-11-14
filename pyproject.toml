@@ -16,6 +16,9 @@ dependencies = [
     "uvicorn>=0.30,<1",
     "sqlalchemy>=2.0.36,<2.1",
     "alembic>=1.14,<2",
+    "mcp>=2.3,<3",
+    "httpx2>=2.16,<3",
+    "defusedxml>=0.7.1,<0.8",
 ]
 
 [dependency-groups]
@@ -27,6 +30,7 @@ dev = [
     "ruff>=0.9,<1",
     "mypy>=1.14,<2",
     "jsonschema>=4.23,<5",
+    "types-defusedxml>=0.7.0,<0.8",
 ]
 
 [tool.setuptools.packages.find]
@@ -43,7 +47,7 @@ asca = [
 testpaths = ["tests"]
 pythonpath = ["tests/support"]
 addopts = "--strict-markers --strict-config"
-markers = ["unit: fast isolated unit tests", "contract: boundary and API contract tests", "architecture: dependency direction checks", "security: security-sensitive behavior tests"]
+markers = ["unit: fast isolated unit tests", "contract: boundary and API contract tests", "architecture: dependency direction checks", "security: security-sensitive behavior tests", "live: opt-in tests against real public providers (ASCA_LIVE=1, never in CI)"]
 
 [tool.coverage.run]
 branch = true
