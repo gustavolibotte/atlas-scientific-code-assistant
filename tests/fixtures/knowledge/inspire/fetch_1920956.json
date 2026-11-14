@@ -1,0 +1,44 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "inspire",
+  "scenario": "fetch_1920956",
+  "synthetic": false,
+  "recorded_at": "2026-11-14T15:33:14Z",
+  "recorder": "asca-recorder/1",
+  "metadata_license": "CC0-1.0",
+  "terms_url": "https://inspirehep.net/help/knowledge-base/terms-of-use",
+  "sanitized": [
+    "abstracts replaced with synthetic text",
+    "authors truncated to 3"
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://inspirehep.net/api/literature",
+    "params": [
+      [
+        "fields",
+        "control_number,titles.title,first_author.full_name,author_count,collaborations.value,dois,arxiv_eprints.value,report_numbers.value,external_system_identifiers,publication_info.journal_title,publication_info.journal_volume,publication_info.year,publication_info.artid,publication_info.page_start,document_type,refereed,earliest_date,imprints.date,license,abstracts.value,abstracts.source,deleted"
+      ],
+      [
+        "page",
+        "1"
+      ],
+      [
+        "q",
+        "control_number:1920956"
+      ],
+      [
+        "size",
+        "1"
+      ]
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_text": "{\"hits\":{\"hits\":[{\"created\":\"2021-09-14T03:07:39.887894+00:00\",\"id\":\"1920956\",\"links\":{\"bibtex\":\"https://inspirehep.net/api/literature/1920956?format=bibtex\",\"citations\":\"https://inspirehep.net/api/literature/?q=refersto%3Arecid%3A1920956\",\"cv\":\"https://inspirehep.net/api/literature/1920956?format=cv\",\"json\":\"https://inspirehep.net/api/literature/1920956?format=json\",\"json-expanded\":\"https://inspirehep.net/api/literature/1920956?format=json-expanded\",\"latex-eu\":\"https://inspirehep.net/api/literature/1920956?format=latex-eu\",\"latex-us\":\"https://inspirehep.net/api/literature/1920956?format=latex-us\"},\"metadata\":{\"abstracts\":[{\"source\":\"IOP\",\"value\":\"Synthetic abstract replacing the original text of record 1920956 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.\"},{\"source\":\"arXiv\",\"value\":\"Synthetic abstract replacing the original text of record 1920956 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.\"}],\"arxiv_eprints\":[{\"value\":\"2109.05124\"}],\"author_count\":3,\"control_number\":1920956,\"document_type\":[\"article\"],\"dois\":[{\"source\":\"IOP\",\"value\":\"10.1088/1748-0221/17/01/P01002\"},{\"material\":\"publication\",\"source\":\"arXiv\",\"value\":\"10.1088/1748-0221/17/01/P01002\"}],\"earliest_date\":\"2021-09-10\",\"first_author\":{\"full_name\":\"Polson, L.\"},\"imprints\":[{\"date\":\"2022-01-04\"}],\"license\":[{\"license\":\"CC BY 4.0\",\"material\":\"preprint\",\"url\":\"http://creativecommons.org/licenses/by/4.0/\"}],\"publication_info\":[{\"artid\":\"P01002\",\"journal_title\":\"JINST\",\"journal_volume\":\"17\",\"year\":2022}],\"refereed\":true,\"titles\":[{\"title\":\"Energy reconstruction in a liquid argon calorimeter cell using convolutional neural networks\"},{\"title\":\"Energy reconstruction in a liquid argon calorimeter cell using convolutional neural networks\"}]},\"updated\":\"2023-12-06T13:43:38.970397+00:00\"}],\"total\":1},\"links\":{\"bibtex\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&format=bibtex\",\"cv\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&format=cv\",\"json\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&fields=control_number,titles.title,first_author.full_name,author_count,collaborations.value,dois,arxiv_eprints.value,report_numbers.value,external_system_identifiers,publication_info.journal_title,publication_info.journal_volume,publication_info.year,publication_info.artid,publication_info.page_start,document_type,refereed,earliest_date,imprints.date,license,abstracts.value,abstracts.source,deleted&format=json\",\"json-expanded\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&format=json-expanded\",\"latex-eu\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&format=latex-eu\",\"latex-us\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&format=latex-us\",\"self\":\"https://inspirehep.net/api/literature/?q=control_number%3A1920956&size=1&page=1&fields=control_number,titles.title,first_author.full_name,author_count,collaborations.value,dois,arxiv_eprints.value,report_numbers.value,external_system_identifiers,publication_info.journal_title,publication_info.journal_volume,publication_info.year,publication_info.artid,publication_info.page_start,document_type,refereed,earliest_date,imprints.date,license,abstracts.value,abstracts.source,deleted\"}}",
+    "body_sha256": "66567276215b7b928b27adf078f0881f223653be94aed768bbf7c340f50bd219"
+  }
+}

@@ -72,10 +72,33 @@ derives link freshness by following each symbol across revisions: `current`, `st
 the GET routes expose the lineage additively; the v1 export schemas are unchanged. See
 [ADR-0039](../adr/0039-python-symbol-index-and-link-lineage.md).
 
+## Federated knowledge layer (M3)
+
+`asca.application.knowledge` holds the async `KnowledgeProvider` models, PID rules, the
+`asca-authority/1` suggestion policy, the `FederationService` and registration planning.
+`asca.infrastructure.knowledge` implements the port:
+
+- `inspire`, `arxiv` and `hepdata` (search only) over one bounded httpx2 client
+  (`http`): fixed base URLs, TLS always verified, no redirects, byte caps, generic
+  User-Agent, provider spacing, no retries; XML only through `defusedxml`;
+- `local`, a curated library described by a manifest, read with the M2 filesystem
+  reader;
+- `mcp_client`, a generic MCP client (one session per operation, configured tools only,
+  results as data) with `mcp_stdio_guard` bounding stdio servers;
+- `config` (permission-checked TOML, never the working directory), `settings`,
+  `secrets` (environment-only `ASCA_` variables) and `url_guard`;
+- `factory.build_federation` and the CLI `python -m asca.infrastructure.knowledge`
+  (`search`, `fetch`, `health`, `providers`).
+
+Every configured provider is reported, results are grouped by identity PIDs without
+fusing fields, and every network call needs `--live`. There is no HTTP route in M3.
+See [ADR-0040](../adr/0040-federated-knowledge-layer.md).
+
 ## Planned integrations
 
 - CERN SSO: OIDC via registered application, no browser token scraping.
-- chATLAS: read-only MCP discovery and queries, subject to authorization.
+- chATLAS: read-only MCP queries through the generic M3 MCP client, subject to
+  authorization (access probe and ADR 0041 pending).
 - CERN GitLab: scoped API access with traceable code revisions.
 - Ollama: provider adapter for plan/code generation, never direct shell access.
 - Execution: separate isolated runner with explicit authorization.

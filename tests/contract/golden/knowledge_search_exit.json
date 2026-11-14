@@ -1,0 +1,762 @@
+{
+  "complete": false,
+  "format": "asca-knowledge-search/1",
+  "groups": [
+    {
+      "best_rank": 0,
+      "effective_access_class": "public",
+      "flags": [],
+      "identity_pids": [
+        "doi:10.1016/s0168-9002(97)00068-5",
+        "inspire:458161"
+      ],
+      "key": "doi:10.1016/s0168-9002(97)00068-5",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 2,
+          "authors": [
+            "Hoppner, M."
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "conference paper"
+            ],
+            "generated": false,
+            "journal_ref": "Nucl.Instrum.Meth.A 389 (1997) 154",
+            "refereed": true
+          },
+          "issued": "1997",
+          "landing_url": "https://inspirehep.net/literature/458161",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            }
+          ],
+          "native_id": "458161",
+          "pids": [
+            {
+              "origin": "curated_link",
+              "pid": "doi:10.1016/s0168-9002(97)00068-5",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "inspire:458161",
+              "role": "identity"
+            }
+          ],
+          "provider": "inspire",
+          "rank": 0,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 458161 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "published",
+            "basis": "Refereed INSPIRE record 458161 lists DOI 10.1016/s0168-9002(97)00068-5.",
+            "letter": "A",
+            "rule": "inspire.refereed/1"
+          },
+          "title": "Applications of neural networks to shower analysis in a highly segmented LAr calorimeter",
+          "title_truncated": false,
+          "version": {
+            "kind": "journal_publication",
+            "label": "doi:10.1016/s0168-9002(97)00068-5"
+          }
+        }
+      ]
+    },
+    {
+      "best_rank": 0,
+      "effective_access_class": "internal",
+      "flags": [
+        "access_mixed"
+      ],
+      "identity_pids": [
+        "doi:10.1088/1748-0221/17/01/p01002",
+        "arxiv:2109.05124",
+        "inspire:1920956"
+      ],
+      "key": "doi:10.1088/1748-0221/17/01/p01002",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 3,
+          "authors": [
+            "Polson, L."
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "article"
+            ],
+            "generated": false,
+            "journal_ref": "JINST 17 (2022) P01002",
+            "refereed": true
+          },
+          "issued": "2022-01-04",
+          "landing_url": "https://inspirehep.net/literature/1920956",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            },
+            {
+              "identifier": "CC-BY-4.0",
+              "scope": "content",
+              "url": "http://creativecommons.org/licenses/by/4.0/"
+            }
+          ],
+          "native_id": "1920956",
+          "pids": [
+            {
+              "origin": "curated_link",
+              "pid": "doi:10.1088/1748-0221/17/01/p01002",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "arxiv:2109.05124",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "inspire:1920956",
+              "role": "identity"
+            }
+          ],
+          "provider": "inspire",
+          "rank": 1,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 1920956 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "published",
+            "basis": "Refereed INSPIRE record 1920956 lists DOI 10.1088/1748-0221/17/01/p01002.",
+            "letter": "A",
+            "rule": "inspire.refereed/1"
+          },
+          "title": "Energy reconstruction in a liquid argon calorimeter cell using convolutional neural networks",
+          "title_truncated": false,
+          "version": {
+            "kind": "journal_publication",
+            "label": "doi:10.1088/1748-0221/17/01/p01002"
+          }
+        },
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 3,
+          "authors": [
+            "L. Polson",
+            "L. Kurchaninov",
+            "M. Lefebvre"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "preprint"
+            ],
+            "generated": false,
+            "journal_ref": null,
+            "refereed": null
+          },
+          "issued": "2021-09-10",
+          "landing_url": "https://arxiv.org/abs/2109.05124v2",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            }
+          ],
+          "native_id": "2109.05124v2",
+          "pids": [
+            {
+              "origin": "provider_asserted",
+              "pid": "doi:10.1088/1748-0221/17/01/p01002",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "arxiv:2109.05124",
+              "role": "identity"
+            }
+          ],
+          "provider": "arxiv",
+          "rank": 0,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 2109.05124v2 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "arXiv preprint 2109.05124v2. Author-supplied DOI 10.1088/1748-0221/17/01/p01002.",
+            "letter": "D",
+            "rule": "arxiv.preprint/1"
+          },
+          "title": "Energy reconstruction in a liquid argon calorimeter cell using convolutional neural networks",
+          "title_truncated": false,
+          "version": {
+            "kind": "arxiv_version",
+            "label": "arXiv:2109.05124v2"
+          }
+        },
+        {
+          "access_class": "internal",
+          "access_conditions": "Synthetic internal test material; not an ATLAS document.",
+          "author_count": 1,
+          "authors": [
+            "A. Curator"
+          ],
+          "content": "full_text",
+          "facts": {
+            "collaborations": [],
+            "document_types": [],
+            "generated": false,
+            "journal_ref": null,
+            "refereed": null
+          },
+          "issued": "2026-11",
+          "landing_url": null,
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "content",
+              "url": null
+            }
+          ],
+          "native_id": "notes/optimal-filtering.md",
+          "pids": [
+            {
+              "origin": "curated_link",
+              "pid": "arxiv:2109.05124",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "local_document:notes/optimal-filtering.md",
+              "role": "related"
+            }
+          ],
+          "provider": "local",
+          "rank": 0,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "# Synthetic note: optimal filtering and neural networks\n\nThis synthetic note compares optimal filtering with a neural network for the energy\nreconstruction of pulses from a liquid argon calorimeter.\n\nOptimal filtering minimises the noise variance of the amplitude estimate. A small\nneural network can recover the amplitude when pulses overlap.\n\nAll numbers and statements in this note are invented test material.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "Local library document notes/optimal-filtering.md is declared working material.",
+            "letter": "D",
+            "rule": "local.declared/1"
+          },
+          "title": "Synthetic local note on liquid argon energy reconstruction with neural networks",
+          "title_truncated": false,
+          "version": {
+            "kind": "declared",
+            "label": "declared:2026-11-01"
+          }
+        }
+      ]
+    },
+    {
+      "best_rank": 1,
+      "effective_access_class": "public",
+      "flags": [],
+      "identity_pids": [
+        "doi:10.1088/1748-0221/18/05/p05017",
+        "arxiv:2302.07555"
+      ],
+      "key": "doi:10.1088/1748-0221/18/05/p05017",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 3,
+          "authors": [
+            "Georges Aad",
+            "Thomas Calvet",
+            "Nemer Chiedde"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "preprint"
+            ],
+            "generated": false,
+            "journal_ref": "JINST 18 (2023) P05017",
+            "refereed": null
+          },
+          "issued": "2023-02-15",
+          "landing_url": "https://arxiv.org/abs/2302.07555v2",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            }
+          ],
+          "native_id": "2302.07555v2",
+          "pids": [
+            {
+              "origin": "provider_asserted",
+              "pid": "doi:10.1088/1748-0221/18/05/p05017",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "arxiv:2302.07555",
+              "role": "identity"
+            }
+          ],
+          "provider": "arxiv",
+          "rank": 1,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 2302.07555v2 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "arXiv preprint 2302.07555v2. Author-supplied DOI 10.1088/1748-0221/18/05/p05017.",
+            "letter": "D",
+            "rule": "arxiv.preprint/1"
+          },
+          "title": "Firmware implementation of a recurrent neural network for the computation of the energy deposited in the liquid argon calorimeter of the ATLAS experiment",
+          "title_truncated": false,
+          "version": {
+            "kind": "arxiv_version",
+            "label": "arXiv:2302.07555v2"
+          }
+        }
+      ]
+    },
+    {
+      "best_rank": 2,
+      "effective_access_class": "public",
+      "flags": [],
+      "identity_pids": [
+        "doi:10.1088/1748-0221/17/04/c04010",
+        "arxiv:2111.08590",
+        "inspire:1969369"
+      ],
+      "key": "doi:10.1088/1748-0221/17/04/c04010",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 1,
+          "authors": [
+            "Chiedde, Nemer"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [
+              "ATLAS Liquid Argon Calorimeter"
+            ],
+            "document_types": [
+              "conference paper"
+            ],
+            "generated": false,
+            "journal_ref": "JINST 17 (2022) C04010",
+            "refereed": null
+          },
+          "issued": "2022-04-06",
+          "landing_url": "https://inspirehep.net/literature/1969369",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            },
+            {
+              "identifier": "CC-BY-4.0",
+              "scope": "content",
+              "url": "http://creativecommons.org/licenses/by/4.0/"
+            }
+          ],
+          "native_id": "1969369",
+          "pids": [
+            {
+              "origin": "curated_link",
+              "pid": "doi:10.1088/1748-0221/17/04/c04010",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "arxiv:2111.08590",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "inspire:1969369",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "cds_record:2806560",
+              "role": "related"
+            }
+          ],
+          "provider": "inspire",
+          "rank": 2,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 1969369 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "INSPIRE record 1969369 is not marked refereed with a DOI.",
+            "letter": "D",
+            "rule": "inspire.other/1"
+          },
+          "title": "Machine learning for real-time processing of ATLAS liquid argon calorimeter signals with FPGAs",
+          "title_truncated": false,
+          "version": {
+            "kind": "journal_publication",
+            "label": "doi:10.1088/1748-0221/17/04/c04010"
+          }
+        },
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 1,
+          "authors": [
+            "Nemer Chiedde"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "preprint"
+            ],
+            "generated": false,
+            "journal_ref": null,
+            "refereed": null
+          },
+          "issued": "2021-11-16",
+          "landing_url": "https://arxiv.org/abs/2111.08590v1",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            }
+          ],
+          "native_id": "2111.08590v1",
+          "pids": [
+            {
+              "origin": "provider_asserted",
+              "pid": "doi:10.1088/1748-0221/17/04/c04010",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "arxiv:2111.08590",
+              "role": "identity"
+            }
+          ],
+          "provider": "arxiv",
+          "rank": 2,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 2111.08590v1 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "arXiv preprint 2111.08590v1. Author-supplied DOI 10.1088/1748-0221/17/04/c04010.",
+            "letter": "D",
+            "rule": "arxiv.preprint/1"
+          },
+          "title": "Machine Learning for Real-Time Processing of ATLAS Liquid Argon Calorimeter Signals with FPGAs",
+          "title_truncated": false,
+          "version": {
+            "kind": "arxiv_version",
+            "label": "arXiv:2111.08590v1"
+          }
+        }
+      ]
+    },
+    {
+      "best_rank": 3,
+      "effective_access_class": "public",
+      "flags": [],
+      "identity_pids": [
+        "inspire:2744105",
+        "cds_report:CERN-THESIS-2023-294"
+      ],
+      "key": "inspire:2744105",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 1,
+          "authors": [
+            "Chiedde, Nemer"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "thesis"
+            ],
+            "generated": false,
+            "journal_ref": null,
+            "refereed": null
+          },
+          "issued": "2023-11-21",
+          "landing_url": "https://inspirehep.net/literature/2744105",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            }
+          ],
+          "native_id": "2744105",
+          "pids": [
+            {
+              "origin": "native",
+              "pid": "inspire:2744105",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "cds_report:CERN-THESIS-2023-294",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "cds_record:2884186",
+              "role": "related"
+            }
+          ],
+          "provider": "inspire",
+          "rank": 3,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 2744105 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "INSPIRE record 2744105 is not marked refereed with a DOI.",
+            "letter": "D",
+            "rule": "inspire.other/1"
+          },
+          "title": "Implementation of embedded artificial intelligence algorithms in the readout system of the ATLAS liquid argon calorimeter",
+          "title_truncated": false,
+          "version": {
+            "kind": "report_number",
+            "label": "report:CERN-THESIS-2023-294"
+          }
+        }
+      ]
+    },
+    {
+      "best_rank": 3,
+      "effective_access_class": "public",
+      "flags": [],
+      "identity_pids": [
+        "doi:10.1140/epjc/s10052-026-15321-y",
+        "arxiv:2510.11469"
+      ],
+      "key": "doi:10.1140/epjc/s10052-026-15321-y",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 3,
+          "authors": [
+            "Georges Aad",
+            "Raphael Bertrand",
+            "Lauri Laatu"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [],
+            "document_types": [
+              "preprint"
+            ],
+            "generated": false,
+            "journal_ref": "Eur. Phys. J. C 86, 111 (2026)",
+            "refereed": null
+          },
+          "issued": "2025-10-13",
+          "landing_url": "https://arxiv.org/abs/2510.11469v3",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            }
+          ],
+          "native_id": "2510.11469v3",
+          "pids": [
+            {
+              "origin": "provider_asserted",
+              "pid": "doi:10.1140/epjc/s10052-026-15321-y",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "arxiv:2510.11469",
+              "role": "identity"
+            }
+          ],
+          "provider": "arxiv",
+          "rank": 3,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 2510.11469v3 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "arXiv preprint 2510.11469v3. Author-supplied DOI 10.1140/epjc/s10052-026-15321-y.",
+            "letter": "D",
+            "rule": "arxiv.preprint/1"
+          },
+          "title": "Optimised neural networks for online processing of ATLAS calorimeter data on FPGAs",
+          "title_truncated": false,
+          "version": {
+            "kind": "arxiv_version",
+            "label": "arXiv:2510.11469v3"
+          }
+        }
+      ]
+    },
+    {
+      "best_rank": 4,
+      "effective_access_class": "public",
+      "flags": [],
+      "identity_pids": [
+        "doi:10.22323/1.398.0752",
+        "inspire:2013724",
+        "cds_report:ATL-COM-LARG-2021-029",
+        "cds_report:ATL-LARG-PROC-2021-008"
+      ],
+      "key": "doi:10.22323/1.398.0752",
+      "members": [
+        {
+          "access_class": "public",
+          "access_conditions": null,
+          "author_count": 1,
+          "authors": [
+            "Laatu, Lauri"
+          ],
+          "content": "abstract",
+          "facts": {
+            "collaborations": [
+              "ATLAS Liquid Argon Calorimeter group"
+            ],
+            "document_types": [
+              "conference paper"
+            ],
+            "generated": false,
+            "journal_ref": "PoS EPS-HEP2021 (2022) 752",
+            "refereed": false
+          },
+          "issued": "2022",
+          "landing_url": "https://inspirehep.net/literature/2013724",
+          "licenses": [
+            {
+              "identifier": "CC0-1.0",
+              "scope": "metadata",
+              "url": null
+            },
+            {
+              "identifier": "CC-BY-NC-ND-4.0",
+              "scope": "content",
+              "url": "https://creativecommons.org/licenses/by-nc-nd/4.0/"
+            }
+          ],
+          "native_id": "2013724",
+          "pids": [
+            {
+              "origin": "curated_link",
+              "pid": "doi:10.22323/1.398.0752",
+              "role": "identity"
+            },
+            {
+              "origin": "native",
+              "pid": "inspire:2013724",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "cds_report:ATL-COM-LARG-2021-029",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "cds_report:ATL-LARG-PROC-2021-008",
+              "role": "identity"
+            },
+            {
+              "origin": "curated_link",
+              "pid": "cds_record:2789991",
+              "role": "related"
+            }
+          ],
+          "provider": "inspire",
+          "rank": 4,
+          "retrieved_at": "2026-11-14T10:00:00Z",
+          "snippet": "Synthetic abstract replacing the original text of record 2013724 for licence reasons. Optimal filtering minimises the noise variance of the amplitude estimate.",
+          "suggestion": {
+            "authority": "working_material",
+            "basis": "INSPIRE record 2013724 is not marked refereed with a DOI.",
+            "letter": "D",
+            "rule": "inspire.other/1"
+          },
+          "title": "Machine Learning for Real-Time Processing of ATLAS Liquid Argon Calorimeter Signals with FPGAs",
+          "title_truncated": false,
+          "version": {
+            "kind": "journal_publication",
+            "label": "doi:10.22323/1.398.0752"
+          }
+        }
+      ]
+    }
+  ],
+  "providers": [
+    {
+      "dropped_items": 0,
+      "error": null,
+      "id": "inspire",
+      "kind": "inspire",
+      "returned": 5,
+      "status": "ok",
+      "total_reported": 17
+    },
+    {
+      "dropped_items": 0,
+      "error": null,
+      "id": "arxiv",
+      "kind": "arxiv",
+      "returned": 4,
+      "status": "ok",
+      "total_reported": 4
+    },
+    {
+      "dropped_items": 0,
+      "error": {
+        "code": "bot_challenge",
+        "http_status": 403,
+        "kind": "blocked",
+        "retry_after_s": null
+      },
+      "id": "hepdata",
+      "kind": "hepdata",
+      "returned": 0,
+      "status": "failed",
+      "total_reported": null
+    },
+    {
+      "dropped_items": 0,
+      "error": null,
+      "id": "local",
+      "kind": "local",
+      "returned": 1,
+      "status": "ok",
+      "total_reported": 1
+    }
+  ],
+  "query": {
+    "access_class": "public",
+    "limit": 5,
+    "text": "energy reconstruction liquid argon calorimeter neural network"
+  }
+}

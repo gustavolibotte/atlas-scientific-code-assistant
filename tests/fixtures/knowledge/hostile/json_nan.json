@@ -1,0 +1,45 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "inspire",
+  "scenario": "json_nan",
+  "synthetic": true,
+  "recorded_at": "2026-11-14T12:00:00Z",
+  "recorder": "asca-synthetic/1",
+  "metadata_license": "CC0-1.0",
+  "terms_url": "https://inspirehep.net/help/knowledge-base/terms-of-use",
+  "sanitized": [],
+  "request": {
+    "method": "GET",
+    "url": "https://inspirehep.net/api/literature",
+    "params": [
+      [
+        "fields",
+        "control_number,titles.title,first_author.full_name,author_count,collaborations.value,dois,arxiv_eprints.value,report_numbers.value,external_system_identifiers,publication_info.journal_title,publication_info.journal_volume,publication_info.year,publication_info.artid,publication_info.page_start,document_type,refereed,earliest_date,imprints.date,license,abstracts.value,abstracts.source,deleted"
+      ],
+      [
+        "page",
+        "1"
+      ],
+      [
+        "q",
+        "optimal filtering"
+      ],
+      [
+        "size",
+        "5"
+      ],
+      [
+        "sort",
+        "bestmatch"
+      ]
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_text": "{\"hits\":{\"total\":NaN,\"hits\":[]}}",
+    "body_sha256": "28bb1373ae9a5d61889fa6d88a65edd49a697ba6e4de7ac9d8b48d953d407160"
+  }
+}
