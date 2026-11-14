@@ -107,5 +107,25 @@
       "sha256": "f78d9a4780ac639dc862ff34fdafe0fbe9caaf36f5661cb5de39cd45d354492c",
       "source": "def f():\n    pass\n"
     }
+  ],
+  "normalization_vectors": [
+    {
+      "rule": "N5",
+      "source": "def close(self):\n    del self.a, self.b\n",
+      "qualified_name": "close",
+      "sha256": "894c67065a19023fd5a5845cee07eb094de1a00b1ed083491fa9d53ec597eff7"
+    },
+    {
+      "rule": "N5",
+      "source": "def close(self):\n    del (\n        self.a,\n        self.b,\n    )\n",
+      "qualified_name": "close",
+      "sha256": "894c67065a19023fd5a5845cee07eb094de1a00b1ed083491fa9d53ec597eff7"
+    },
+    {
+      "rule": "N5",
+      "source": "def close(self):\n    del [self.a, (self.b,)]\n",
+      "qualified_name": "close",
+      "sha256": "894c67065a19023fd5a5845cee07eb094de1a00b1ed083491fa9d53ec597eff7"
+    }
   ]
 }

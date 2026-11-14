@@ -84,6 +84,16 @@ def test_reference_vectors(source: str, qualified_name: str, digest: str) -> Non
     assert _fingerprints(source.encode("utf-8"))[qualified_name][1] == digest
 
 
+def test_normalization_vectors() -> None:
+    # N5: ``ruff format`` wraps a long ``del`` in parentheses; the digest must not move.
+    vectors = _expected()["normalization_vectors"]
+    assert {item["rule"] for item in vectors} == {"N5"}
+    assert len({item["sha256"] for item in vectors}) == 1
+    for item in vectors:
+        digest = _fingerprints(item["source"].encode("utf-8"))[item["qualified_name"]][1]
+        assert digest == item["sha256"]
+
+
 def test_corpus_matches_golden() -> None:
     data = (GOLDEN / "corpus.pysrc").read_bytes()
     assert _fingerprints(data) == CORPUS

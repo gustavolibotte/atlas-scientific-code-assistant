@@ -24,6 +24,9 @@ ROOT_ONLY_EXCLUDED_DIR_NAMES: Final = frozenset({"build", "dist", "venv"})
 VENV_MARKERS: Final = frozenset({"pyvenv.cfg", "conda-meta"})
 
 _READ_CHUNK: Final = 65_536
+#: open() errors for a special file swapped in after listing: a socket gives ENXIO on
+#: Linux and EOPNOTSUPP on macOS (XNU); a device without a driver gives ENXIO.
+_NOT_REGULAR_OPEN_ERRORS: Final = frozenset({errno.ENXIO, errno.EOPNOTSUPP})
 _EXCLUDED_NAME_ERROR: Final = "excluded directory names must be non-empty without '/' or NUL"
 _SUFFIX_ERROR: Final = "suffixes must be non-empty strings without '/' or NUL"
 
@@ -181,8 +184,7 @@ class _Walk:
         except OSError as error:
             if error.errno == errno.ELOOP:
                 return FileIssueKind.SYMLINK
-            if error.errno == errno.ENXIO:
-                # A socket (or a device without a driver) swapped in after listing.
+            if error.errno in _NOT_REGULAR_OPEN_ERRORS:
                 return FileIssueKind.NOT_REGULAR
             return FileIssueKind.UNREADABLE
         try:

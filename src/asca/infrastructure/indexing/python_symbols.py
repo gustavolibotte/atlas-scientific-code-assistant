@@ -8,6 +8,8 @@ and an issue never carries an exception message, because messages echo source te
 
 import ast
 import re
+import sys
+import threading
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -39,6 +41,17 @@ _LATIN1: Final = "iso8859-1"
 _LATIN1_NAMES: Final = ("latin-1", "latin1", "iso-8859-1", "iso8859-1", "iso-latin-1")
 _ASCII_NAMES: Final = ("ascii", "us-ascii")
 _PARSE_FILENAME: Final = "<asca-index>"
+#: Deepest AST (the module is depth 1) that python-ast/1 fingerprints. Every supported
+#: interpreter parses any tree up to this depth; deeper trees are ``too_complex`` on all
+#: of them, instead of only on those whose parser gives up first.
+MAX_AST_DEPTH: Final = 1_000
+#: CPython's default digit limit for decimal ``int`` literals, pinned while parsing so
+#: ``PYTHONINTMAXSTRDIGITS`` or ``-X int_max_str_digits`` never changes an outcome.
+INT_MAX_STR_DIGITS: Final = 4_300
+#: CPython's default recursion limit; Python 3.11 derives the parser's budget from it.
+MIN_RECURSION_LIMIT: Final = 1_000
+#: Serializes parses, because the pinned settings and the warnings filter are global.
+_PARSE_LOCK: Final = threading.Lock()
 
 _Definition = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
 
@@ -96,21 +109,65 @@ def decode_source(data: bytes) -> str | FileIssueKind:
         return failure.issue
 
 
-def _parse(text: str) -> ast.Module:
+def _parse_pinned(text: str) -> ast.Module | FileIssueKind:
+    """``ast.parse`` under the pinned settings; run only by ``_parse``'s own thread."""
+    digits = sys.get_int_max_str_digits()
+    recursion = sys.getrecursionlimit()
     try:
+        if digits != INT_MAX_STR_DIGITS:
+            sys.set_int_max_str_digits(INT_MAX_STR_DIGITS)
+        if recursion < MIN_RECURSION_LIMIT:
+            sys.setrecursionlimit(MIN_RECURSION_LIMIT)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return ast.parse(text, filename=_PARSE_FILENAME, mode="exec")
     except (SyntaxError, ValueError):
-        raise _Failed(FileIssueKind.SYNTAX_ERROR) from None
+        return FileIssueKind.SYNTAX_ERROR
     except (RecursionError, MemoryError):
-        raise _Failed(FileIssueKind.TOO_COMPLEX) from None
+        return FileIssueKind.TOO_COMPLEX
+    finally:
+        if digits != INT_MAX_STR_DIGITS:
+            sys.set_int_max_str_digits(digits)
+        if recursion < MIN_RECURSION_LIMIT:
+            sys.setrecursionlimit(recursion)
 
 
-def _check_node_count(tree: ast.Module, limit: int) -> None:
-    for count, _ in enumerate(ast.walk(tree), start=1):
-        if count > limit:
+def _parse(text: str) -> ast.Module:
+    """Parse in a fresh thread, so the caller's stack depth never changes the outcome.
+
+    On Python 3.11 the parser's recursion budget shrinks with every Python frame already
+    on the calling thread's stack. A new thread always starts at the same depth.
+    """
+    outcome: list[ast.Module | FileIssueKind | BaseException] = []
+
+    def run() -> None:
+        try:
+            outcome.append(_parse_pinned(text))
+        except BaseException as error:  # re-raised in the calling thread
+            outcome.append(error)
+
+    with _PARSE_LOCK:
+        thread = threading.Thread(target=run, name="asca-python-parse", daemon=True)
+        thread.start()
+        thread.join()
+    result = outcome[0]
+    if isinstance(result, BaseException):
+        raise result
+    if isinstance(result, FileIssueKind):
+        raise _Failed(result)
+    return result
+
+
+def _check_shape(tree: ast.Module, node_limit: int) -> None:
+    """Too many nodes, or nesting deeper than ``MAX_AST_DEPTH``, is ``too_complex``."""
+    count = 0
+    pending: list[tuple[ast.AST, int]] = [(tree, 1)]
+    while pending:
+        node, depth = pending.pop()
+        count += 1
+        if count > node_limit or depth > MAX_AST_DEPTH:
             raise _Failed(FileIssueKind.TOO_COMPLEX)
+        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +264,7 @@ def _extract(data: bytes, limits: IndexLimits) -> FileExtraction:
         raise _Failed(FileIssueKind.BINARY)
     text = _decode(data)
     tree = _parse(text)
-    _check_node_count(tree, limits.max_ast_nodes_per_file)
+    _check_shape(tree, limits.max_ast_nodes_per_file)
     try:
         digests = definition_digests(tree)
         module_fingerprint = module_digest(tree, digests)

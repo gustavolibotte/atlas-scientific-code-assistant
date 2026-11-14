@@ -59,6 +59,7 @@ the result through the inspector and the HTTP API:
 - `tests/unit/test_python_symbols.py::test_spans_include_decorators`
 - `tests/unit/test_python_symbols.py::test_module_span_counts_physical_lines`
 - `tests/unit/test_python_symbols.py::test_non_ascii_and_overlong_names_are_skipped_with_members`
+- `tests/unit/test_python_symbols.py::test_qualified_name_limit_is_inclusive`
 - `tests/unit/test_python_symbols.py::test_top_level_def_named___module___is_skipped`
 - `tests/unit/test_indexing_service.py::test_index_workspace_records_sorted_drafts_with_algorithm_and_issues`
 - `tests/unit/test_indexing_service.py::test_build_index_drafts_are_sorted_by_path_and_name`
@@ -82,12 +83,16 @@ the result through the inspector and the HTTP API:
 - `tests/unit/test_python_fingerprint.py::test_method_edit_changes_class`
 - `tests/unit/test_python_fingerprint.py::test_nested_def_edit_or_rename_changes_enclosing_function`
 - `tests/unit/test_python_fingerprint.py::test_joined_strings_are_flattened_and_merged`
+- `tests/unit/test_python_fingerprint.py::test_formatter_parenthesized_del_keeps_every_fingerprint`
+- `tests/unit/test_python_fingerprint.py::test_del_targets_are_flattened`
+- `tests/unit/test_python_fingerprint.py::test_del_target_order_and_content_still_matter`
 - `tests/unit/test_python_fingerprint.py::test_serializer_is_iterative`
 
 ### 3. Cross-version stability (Python 3.11, 3.12, 3.13)
 
 - `tests/contract/test_fingerprint_golden.py::test_expected_file_names_the_algorithm_and_the_spec_vectors`
 - `tests/contract/test_fingerprint_golden.py::test_reference_vectors`
+- `tests/contract/test_fingerprint_golden.py::test_normalization_vectors`
 - `tests/contract/test_fingerprint_golden.py::test_corpus_matches_golden`
 - `tests/contract/test_fingerprint_golden.py::test_py312_corpus`
 - `tests/contract/test_fingerprint_golden.py::test_py313_corpus`
@@ -103,6 +108,7 @@ skip on older interpreters and are checked there to be `syntax_error`.
 - `tests/unit/test_indexing_service.py::test_reindexing_records_a_new_revision_each_time`
 - `tests/unit/test_indexing_service.py::test_source_digest_is_deterministic_and_sensitive`
 - `tests/unit/test_indexing_service.py::test_index_failures_write_nothing`
+- `tests/unit/test_indexing_service.py::test_file_at_the_byte_limit_is_indexed_and_one_more_byte_is_too_large`
 - `tests/unit/test_indexing_service.py::test_allow_empty_records_an_empty_revision`
 - `tests/unit/test_indexing_service.py::test_concurrent_modification_propagates`
 - `tests/contract/test_symbol_index_end_to_end.py::test_unchanged_tree_reindex_gives_identical_digest_and_fingerprints`
@@ -141,6 +147,13 @@ skip on older interpreters and are checked there to be `syntax_error`.
 - `tests/unit/test_symbol_lineage.py::test_two_new_candidates_are_ambiguous`
 - `tests/unit/test_symbol_lineage.py::test_one_candidate_with_a_rival_is_ambiguous`
 - `tests/unit/test_symbol_lineage.py::test_new_symbol_reusing_a_renamed_name_does_not_inherit`
+- `tests/unit/test_symbol_lineage.py::test_move_while_the_source_file_is_unparseable_is_a_move`
+- `tests/unit/test_symbol_lineage.py::test_move_while_the_source_file_is_unparseable_still_respects_rivals`
+- `tests/unit/test_symbol_lineage.py::test_a_symbol_that_existed_before_the_window_is_not_a_target`
+- `tests/unit/test_symbol_lineage.py::test_a_twin_that_left_and_returned_inside_the_window_is_no_rival`
+- `tests/unit/test_symbol_lineage.py::test_inherited_twin_is_never_a_rival`
+- `tests/unit/test_symbol_lineage.py::test_fingerprints_of_different_algorithms_never_relocate`
+- `tests/unit/test_symbol_lineage.py::test_candidates_and_rivals_only_share_the_algorithm`
 - `tests/unit/test_symbol_lineage.py::test_m1_fixture_still_gives_current_stale_moved_and_orphaned`
 - `tests/unit/test_provenance_inspection.py::test_moved_symbol_shows_the_carried_link`
 - `tests/unit/test_provenance_inspection.py::test_list_symbols_worst_freshness_and_decision_count`
@@ -156,6 +169,8 @@ skip on older interpreters and are checked there to be `syntax_error`.
 - `tests/unit/test_symbol_lineage.py::test_not_fingerprinted`
 - `tests/unit/test_symbol_lineage.py::test_not_indexed`
 - `tests/unit/test_symbol_lineage.py::test_unindexed_revisions_attach_by_key_only`
+- `tests/unit/test_symbol_lineage.py::test_unindexed_origin_in_an_unparseable_file_is_file_not_parsed`
+- `tests/unit/test_symbol_lineage.py::test_m1_unindexed_origin_whose_file_fails_the_first_index_is_file_not_parsed`
 - `tests/unit/test_provenance_inspection.py::test_file_issue_on_inspection`
 - `tests/contract/test_provenance_api.py::test_file_not_parsed_reports_the_file_issue`
 - `tests/unit/test_python_symbols.py::test_unsupported_syntax_is_a_whole_file_issue`
@@ -170,6 +185,11 @@ Lineage soundness over generated histories:
 - `tests/unit/test_symbol_lineage.py::test_related_is_symmetric`
 - `tests/unit/test_symbol_lineage.py::test_random_histories_are_sound` (property)
 - `tests/unit/test_symbol_lineage.py::test_results_invariant_under_id_permutation` (property)
+- `tests/unit/test_symbol_lineage.py::test_generated_histories_reach_relocations_rivals_and_carried_twins`
+
+Generated revisions apply one to three operations each, so a revision can carry an
+issue file forward and relocate a symbol elsewhere at the same time; the reach test
+asserts that the generator produces every lineage reason, rivals included.
 
 ### 9. Persistence and migration
 
@@ -239,13 +259,19 @@ prove it. Every test listed here is a negative or boundary test.
 - `tests/architecture/test_dependencies.py::test_python_extractor_never_touches_files_or_codecs`
 
 **S3. The extractor never raises, is bounded, and its result does not depend on the
-warnings filter.**
+warnings filter, the `int` digit limit, the recursion limit or the caller's stack
+depth.**
 
 - `tests/unit/test_python_symbols.py::test_extract_never_raises_on_arbitrary_bytes` (property)
 - `tests/unit/test_python_symbols.py::test_extract_never_raises_on_python_like_text` (property)
 - `tests/unit/test_python_symbols.py::test_symbol_and_node_limits_give_too_complex`
 - `tests/security/test_python_extractor_security.py::test_pathological_nesting_is_too_complex_or_syntax_error_within_2s`
 - `tests/security/test_python_extractor_security.py::test_result_is_identical_under_warnings_error`
+- `tests/security/test_python_extractor_security.py::test_result_does_not_depend_on_the_callers_stack_depth`
+- `tests/security/test_python_extractor_security.py::test_nesting_deeper_than_the_bound_is_too_complex_on_every_interpreter`
+- `tests/security/test_python_extractor_security.py::test_result_does_not_depend_on_the_int_digit_limit`
+- `tests/security/test_python_extractor_security.py::test_result_does_not_depend_on_a_lowered_recursion_limit`
+- `tests/security/test_python_extractor_security.py::test_unexpected_parser_errors_propagate_to_the_caller`
 
 **S4. The reader never follows a symlink, also after a swap between listing and
 opening.**
@@ -263,6 +289,8 @@ opening.**
 - `tests/security/test_workspace_reader_security.py::test_fifo_and_unix_socket_named_py_are_not_regular_and_never_block`
 - `tests/security/test_workspace_reader_security.py::test_a_fifo_swapped_in_after_listing_is_opened_non_blocking_and_not_read`
 - `tests/security/test_workspace_reader_security.py::test_a_socket_swapped_in_after_listing_is_not_regular`
+- `tests/security/test_workspace_reader_security.py::test_open_errors_that_mean_a_socket_are_not_regular`
+  (`ENXIO` on Linux, `EOPNOTSUPP` on macOS)
 
 **S6. Reads are bounded per file and per run.**
 
@@ -291,8 +319,8 @@ file is `unreadable`.**
 - `tests/security/test_workspace_reader_security.py::test_a_file_that_cannot_be_opened_is_unreadable`
 - `tests/security/test_workspace_reader_security.py::test_a_read_error_makes_the_file_unreadable_and_closes_it`
 
-**S9. Names are validated before anything is opened; rejected names are counted and
-never echoed.**
+**S9. Names are validated before anything is opened, at the root and in
+subdirectories; rejected names are counted and never echoed.**
 
 - `tests/security/test_workspace_reader_security.py::test_unrepresentable_file_names_are_counted_and_never_echoed`
 - `tests/security/test_workspace_reader_security.py::test_non_utf8_file_names_are_counted_and_never_echoed`

@@ -44,7 +44,8 @@ only stores and compares opaque `(algorithm, sha256)` pairs.
   unknown type, raises `UnsupportedSyntax`, which the extractor reports as a file issue.
 - Constants are encoded with their exact type (`type(x) is ...`): `1`, `1.0`, `True`,
   `1j`, `b"1"` and `"1"` all differ; floats are encoded with `float.hex`, so `-0.0`
-  and `0.0` differ and the `int` digit limit never applies.
+  and `0.0` differ and the encoder never meets the `int` digit limit. (Parsing pins
+  that limit; see 2.4.)
 - A field is omitted when it is None or `[]`. This makes 3.11 (no `type_params`), 3.12
   (`type_params=[]`) and 3.13 (`default_value=None`) produce identical output.
 - **Merkle references.** A nested `FunctionDef`, `AsyncFunctionDef` or `ClassDef`
@@ -63,6 +64,10 @@ only stores and compares opaque `(algorithm, sha256)` pairs.
 - f-strings are flattened: nested `JoinedStr` merged, empty parts dropped, adjacent
   strings merged, and an empty format spec removed, so `f"{x:}"` equals `f"{x}"`.
 - `ImportFrom.level=None` is read as 0.
+- `del` targets are flattened: a `Tuple` or `List` target is replaced by its elements,
+  recursively, so `del (a, b)`, `del [a, b]` and `del a, b` are equal. Formatters
+  (`ruff format`, black) wrap a long `del` in parentheses, and deletion runs left to
+  right in every spelling. Order and every other target still count.
 
 **Coverage.** A function or method covers its decorators, full signature (defaults,
 annotations, return annotation, PEP 695 type parameters), async-ness and body,
@@ -82,9 +87,10 @@ one file are merged with `sha256(b"asca:python-ast/1:merged\n" + digests in sour
   `unsupported_syntax` (for example 3.14 template strings) keeps the id, provided every
   golden is unchanged.
 - The field-table coverage test fails loudly when the supported Python range widens.
-- Golden values live in `tests/contract/golden/fingerprints/python_ast_1/` as `.pysrc`
-  files (CI runs `compileall` on `tests/`, so the corpora cannot be `.py`) and are
-  checked on Python 3.11, 3.12 and 3.13.
+- Golden values live in `tests/contract/fingerprint_golden/python_ast_1/` as `.pysrc`
+  files (CI runs `compileall` on `tests/`, so the corpora cannot be `.py`), plus
+  normalization vectors in `expected.json` that pair a `del` statement with its
+  formatter output. They are checked on Python 3.11, 3.12 and 3.13.
 
 ### 2.2 Symbol model
 
@@ -113,11 +119,20 @@ walks every later revision in sequence order from the linked symbol (the *origin
 - **Same key present:** follow it.
 - **Carried files:** when a file is listed as an issue in a revision (syntax error, too
   large, symlink, unreadable, ...), its last known symbols are carried forward. A link
-  in such a file becomes `unknown` (`file_not_parsed`), never `orphaned`.
+  in such a file becomes `unknown` (`file_not_parsed`), never `orphaned`. This also
+  holds when the link's symbol was never carried, because it was recorded in an
+  unindexed revision: a revision that did not parse the file decides nothing about it.
+  Carried symbols are never counted as disappeared.
 - **Move rule:** when the key disappears, the link moves only when exactly one
   *plausible* new symbol has an equal fingerprint and no other disappeared symbol shares
   that fingerprint. Plausible means the same file, or the same final name segment in
   another file. A rename and a file move in one revision is therefore not a move.
+  "New" and "disappeared" are measured from the last indexed revision in which the
+  traced symbol was actually parsed. While its file was carried, other files kept
+  changing: a function cut from a file that was left broken and pasted into another
+  file is a move once the first file parses again, exactly as if the broken revisions
+  had never been indexed, and a same-fingerprint symbol that disappeared during that
+  window is still a rival.
 - **Unindexed revisions** never decide anything; their same-key symbols are recorded
   only for attachment.
 
@@ -176,7 +191,8 @@ revision.
 - fd-relative traversal with `O_NOFOLLOW`; symlinks are never followed. A symlinked
   source file is reported as `symlink`, and a symlinked directory is skipped.
 - Files are opened non-blocking and checked with `fstat`: a FIFO, socket or device
-  named `*.py` is `not_regular` and never read; an entry the listing already reports as
+  named `*.py` is `not_regular` and never read (opening a socket fails with `ENXIO` on
+  Linux and `EOPNOTSUPP` on macOS; both mean `not_regular`); an entry the listing already reports as
   a socket or device is not even opened, and a symlink candidate still counts toward the
   file limit. A file larger than the limit, or one
   that grows during the read, is `too_large`; at most `max_file_bytes + 1` bytes are read.
@@ -198,6 +214,17 @@ revision.
   recursion or memory errors and node or symbol limits are `too_complex`; an unknown
   node type is `unsupported_syntax` for the whole file. Exception messages are never
   kept, because they echo source text.
+- **The outcome never depends on the calling process.** `ast.parse` runs in a fresh
+  thread (on Python 3.11 the parser's recursion budget shrinks with every frame already
+  on the caller's stack), one parse at a time, with CPython's default decimal `int`
+  digit limit (4,300) pinned and the recursion limit raised to at least its default
+  (1,000) for the parse. A decimal literal longer than 4,300 digits is therefore
+  `syntax_error` whatever `PYTHONINTMAXSTRDIGITS` or `-X int_max_str_digits` says.
+- An AST deeper than 1,000 nodes (the module is depth 1) is `too_complex`. Every
+  supported interpreter parses trees up to that depth, so a deep file gets the same
+  issue on 3.11, 3.12 and 3.13 instead of only on the interpreter whose parser gives up
+  first. The deepest file in the standard library and the installed dependencies is
+  under 100. The bound is part of `python-ast/1`.
 - `extract` is total: it never raises for any input bytes.
 
 **Indexing service.** `build_index` validates the extractor set and the snapshot again
@@ -303,10 +330,14 @@ forbid calls to `exec`, `eval`, `compile` and `__import__`, and keep `ast`, `os`
 5. **Interpreter syntax range.** 3.12+ syntax on a 3.11 indexer gives `syntax_error`, so
    the link is `unknown`, never `orphaned`. Python 3.14 needs a table extension, and the
    coverage test fails loudly.
-6. **In-process parsing.** `warnings.catch_warnings` is process-global and not
-   thread-safe. Catching `MemoryError` is coarse; worst-case transient memory is about
-   330 MB for 512 KiB of pathological input. M5/M6 should run the indexer in a worker
-   process.
+6. **In-process parsing.** The warnings filter, the `int` digit limit and the
+   recursion limit are process-global. Parses are serialized by a lock, but another
+   thread of the same process sees the pinned values while a parse runs. Catching
+   `MemoryError` is coarse; worst-case transient memory is about 330 MB for 512 KiB of
+   pathological input. Inputs that exhaust the parser's own fixed stack (brackets
+   nested about 200 deep around deep expressions, at AST depths of about 300 to 400)
+   are `too_complex` everywhere, but the exact boundary can differ by a level between
+   interpreter versions. M5/M6 should run the indexer in a worker process.
 7. **Reader coverage.** POSIX only. `.gitignore` is ignored. Hard links are read.
    Symlinked package directories are not indexed. A directory replaced by a symlink
    makes its links `orphaned`, not `unknown`.

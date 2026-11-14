@@ -155,6 +155,7 @@ class SymbolLineage:
         "_graph",
         "_memo",
         "_new",
+        "_previous",
         "latest_indexed",
         "revisions",
     )
@@ -172,11 +173,13 @@ class SymbolLineage:
         self._effective: dict[RevisionId, dict[SymbolKey, CodeSymbol]] = {}
         self._new: dict[RevisionId, dict[_Group, list[CodeSymbol]]] = {}
         self._gone: dict[RevisionId, dict[_Group, list[CodeSymbol]]] = {}
+        self._previous: dict[RevisionId, WorkspaceRevision | None] = {}
         previous: dict[SymbolKey, CodeSymbol] = {}
         latest: WorkspaceRevision | None = None
         for revision in self.revisions:
             if not revision.symbols_indexed:
                 continue
+            self._previous[revision.id] = latest
             own = self._by_key[revision.id]
             effective = dict(own)
             issue_paths = revision.issue_paths
@@ -210,14 +213,47 @@ class SymbolLineage:
             self._memo[symbol_id] = cached
         return cached
 
+    def _window(
+        self, since: WorkspaceRevision | None, revision: WorkspaceRevision, group: _Group
+    ) -> tuple[list[CodeSymbol], list[CodeSymbol]]:
+        """Symbols of ``group`` new and gone in ``revision`` relative to ``since``.
+
+        ``since`` is the last indexed revision in which the traced symbol was parsed. While
+        its file was carried, other files kept changing; a symbol that appeared during that
+        window is still new, and one that disappeared during it is still gone.
+        """
+        if self._previous[revision.id] is since:
+            return self._new[revision.id].get(group, []), self._gone[revision.id].get(group, [])
+        base = {} if since is None else self._effective[since.id]
+        new = [
+            symbol
+            for key, symbol in self._by_key[revision.id].items()
+            if key not in base and _group_of(symbol) == group
+        ]
+        effective = self._effective[revision.id]
+        gone: dict[SymbolKey, CodeSymbol] = {}
+        for between in self.revisions:
+            if (
+                between.symbols_indexed
+                and (since is None or between.sequence > since.sequence)
+                and between.sequence <= revision.sequence
+            ):
+                for symbol in self._gone[between.id].get(group, ()):
+                    if symbol.key not in effective:
+                        gone.setdefault(symbol.key, symbol)
+        return new, list(gone.values())
+
     def _trace(self, origin: CodeSymbol) -> SymbolTrace:
         start = self._graph.get(WorkspaceRevision, origin.revision_id).sequence
         current = origin
         successors: list[SymbolId] = []
         lost: WorkspaceRevision | None = None
         candidates: tuple[CodeSymbol, ...] = ()
+        since: WorkspaceRevision | None = None
         for revision in self.revisions:
             if revision.sequence <= start:
+                if revision.symbols_indexed:
+                    since = revision
                 continue
             if not revision.symbols_indexed:
                 attached = self._by_key[revision.id].get(current.key)
@@ -229,20 +265,22 @@ class SymbolLineage:
                 if found.revision_id == revision.id:
                     current = found
                     successors.append(found.id)
+                    since = revision
+                continue
+            if current.file_path in revision.issue_paths:
+                # Never carried (its origin is unindexed), but its file was not parsed.
                 continue
             group = _group_of(current)
             if group is None:
                 lost = revision
                 break
-            plausible = [
-                item for item in self._new[revision.id].get(group, ()) if _plausible(current, item)
-            ]
-            rivals = [
-                item for item in self._gone[revision.id].get(group, ()) if item.key != current.key
-            ]
+            new, gone = self._window(since, revision, group)
+            plausible = [item for item in new if _plausible(current, item)]
+            rivals = [item for item in gone if item.key != current.key]
             if len(plausible) == 1 and not rivals:
                 current = plausible[0]
                 successors.append(current.id)
+                since = revision
                 continue
             lost = revision
             candidates = tuple(sorted(plausible, key=lambda item: item.key))[:MAX_CANDIDATES]

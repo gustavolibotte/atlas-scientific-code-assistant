@@ -3,6 +3,7 @@
 import random
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from itertools import pairwise
 
 import pytest
 from hypothesis import given, settings
@@ -47,6 +48,7 @@ pytestmark = pytest.mark.unit
 
 A = "src/a.py"
 B = "src/b.py"
+C = "src/c.py"
 ALGORITHM = FingerprintAlgorithm.PYTHON_AST_1
 _AUTO = object()
 
@@ -82,6 +84,7 @@ class History:
         indexed: bool = True,
         issues: tuple[str, ...] = (),
         algorithm: object = _AUTO,
+        algorithms: dict[tuple[str, str], FingerprintAlgorithm | None] | None = None,
     ) -> dict[tuple[str, str], CodeSymbol]:
         sequence = len(self.revisions) + 1
         revision = WorkspaceRevision(
@@ -99,6 +102,8 @@ class History:
         created: dict[tuple[str, str], CodeSymbol] = {}
         for (path, name), value in symbols.items():
             chosen = ALGORITHM if algorithm is _AUTO else algorithm
+            if algorithms is not None and (path, name) in algorithms:
+                chosen = algorithms[(path, name)]
             created[(path, name)] = CodeSymbol(
                 id=SymbolId(self._id(IdKind.SYMBOL)),
                 project_id=self.project.id,
@@ -457,6 +462,119 @@ def test_symbol_from_an_issue_file_that_never_returns_is_removed() -> None:
     assert trace.lost_in_revision == history.revisions[2]
 
 
+def test_move_while_the_source_file_is_unparseable_is_a_move() -> None:
+    # Cut from a.py (left broken), pasted into b.py; a.py is fixed one revision later.
+    history = History()
+    first = history.revision({(A, "f"): 1, (A, "other"): 2})[(A, "f")]
+    history.revision({(B, "f"): 1}, issues=(A,))
+    assert _reason(history, first) is FreshnessReason.FILE_NOT_PARSED
+    history.revision({(B, "f"): 1}, issues=(A,))
+    moved = history.revision({(A, "other"): 2, (B, "f"): 1})[(B, "f")]
+    trace = history.trace(first)
+    assert (trace.reason, trace.freshness) == (FreshnessReason.RELOCATED, LinkFreshness.MOVED)
+    assert trace.current == moved
+    assert trace.successors == (moved.id,)
+    # The verdict equals the one without the broken intermediate revisions.
+    direct = History()
+    origin = direct.revision({(A, "f"): 1, (A, "other"): 2})[(A, "f")]
+    direct.revision({(A, "other"): 2, (B, "f"): 1})
+    assert _reason(direct, origin) is FreshnessReason.RELOCATED
+
+
+def test_move_while_the_source_file_is_unparseable_still_respects_rivals() -> None:
+    history = History()
+    first = history.revision({(A, "f"): 1})[(A, "f")]
+    rival = history.revision({(C, "f"): 1}, issues=(A,))[(C, "f")]
+    history.revision({(B, "f"): 1}, issues=(A,))
+    target = history.revision({(B, "f"): 1})[(B, "f")]
+    trace = history.trace(first)
+    # c.py's f disappeared inside the window with the same fingerprint: not a unique move.
+    assert trace.reason is FreshnessReason.AMBIGUOUS_RELOCATION
+    assert trace.candidates == (target,)
+    assert trace.lost_in_revision == history.revisions[3]
+    assert _reason(history, rival) is FreshnessReason.RELOCATED
+
+
+def test_a_twin_that_left_and_returned_inside_the_window_is_no_rival() -> None:
+    history = History()
+    first = history.revision({(A, "f"): 1, (C, "g"): 1})[(A, "f")]
+    history.revision({(B, "f"): 1}, issues=(A,))  # c.py's g is gone here...
+    moved = history.revision({(B, "f"): 1, (C, "g"): 1})[(B, "f")]  # ...and back here
+    trace = history.trace(first)
+    assert (trace.reason, trace.current) == (FreshnessReason.RELOCATED, moved)
+
+
+def test_a_symbol_that_existed_before_the_window_is_not_a_target() -> None:
+    history = History()
+    first = history.revision({(A, "f"): 1, (B, "f"): 1})[(A, "f")]
+    history.revision({(B, "f"): 1}, issues=(A,))
+    history.revision({(B, "f"): 1})
+    trace = history.trace(first)
+    assert trace.reason is FreshnessReason.REMOVED
+    assert trace.candidates == ()
+
+
+def test_inherited_twin_is_never_a_rival() -> None:
+    # A::f is carried forward (a.py has an issue); it is not gone, so B::g moves to B::h.
+    history = History()
+    first = history.revision({(A, "f"): 1, (B, "g"): 1})[(B, "g")]
+    moved = history.revision({(B, "h"): 1}, issues=(A,))[(B, "h")]
+    trace = history.trace(first)
+    assert (trace.reason, trace.freshness) == (FreshnessReason.RELOCATED, LinkFreshness.MOVED)
+    assert trace.current == moved
+    assert trace.candidates == ()
+
+
+def test_unindexed_origin_in_an_unparseable_file_is_file_not_parsed() -> None:
+    history = History()
+    history.revision({(A, "f"): 1})
+    origin = history.revision({(A, "g"): 2}, indexed=False)[(A, "g")]
+    history.revision({}, issues=(A,))
+    trace = history.trace(origin)
+    assert (trace.reason, trace.freshness) == (
+        FreshnessReason.FILE_NOT_PARSED,
+        LinkFreshness.UNKNOWN,
+    )
+    assert trace.lost_in_revision is None
+    assert trace.last_seen == origin
+    recovered = history.revision({(A, "g"): 2})[(A, "g")]
+    trace = history.trace(origin)
+    assert trace.reason is FreshnessReason.UNCHANGED
+    assert trace.current == recovered
+
+
+def test_m1_unindexed_origin_whose_file_fails_the_first_index_is_file_not_parsed() -> None:
+    history = History()
+    origin = history.revision({(A, "g"): 2}, indexed=False, algorithm=None)[(A, "g")]
+    history.revision({(B, "x"): 3}, issues=(A,))
+    trace = history.trace(origin)
+    assert trace.reason is FreshnessReason.FILE_NOT_PARSED
+    assert trace.evaluated_revision == history.revisions[-1]
+
+
+def test_fingerprints_of_different_algorithms_never_relocate() -> None:
+    history = History()
+    first = history.revision({(A, "f"): 1}, algorithm=None)[(A, "f")]
+    history.revision({(A, "g"): 1})
+    trace = history.trace(first)
+    assert (trace.reason, trace.freshness) == (FreshnessReason.REMOVED, LinkFreshness.ORPHANED)
+    assert trace.successors == ()
+    assert trace.candidates == ()
+
+
+def test_candidates_and_rivals_only_share_the_algorithm() -> None:
+    history = History()
+    created = history.revision({(A, "f"): 1, (A, "k"): 1}, algorithms={(A, "k"): None})
+    target = history.revision({(A, "g"): 1, (A, "h"): 1}, algorithms={(A, "h"): None})
+    # k is algorithm-less, so it is no rival of f, and h is no candidate for f.
+    trace = history.trace(created[(A, "f")])
+    assert trace.reason is FreshnessReason.RELOCATED
+    assert trace.current == target[(A, "g")]
+    trace = history.trace(created[(A, "k")])
+    assert trace.reason is FreshnessReason.RELOCATED
+    assert trace.current == target[(A, "h")]
+
+
 def test_unindexed_revisions_attach_by_key_only() -> None:
     history = History()
     first = history.revision({(A, "f"): 1})[(A, "f")]
@@ -610,7 +728,7 @@ operation_strategy = st.one_of(
     st.tuples(st.just("delete"), st.integers(0, 20)),
     st.tuples(st.just("issue"), st.sampled_from(FILES)),
     st.tuples(st.just("unindexed"), st.integers(0, 20)),
-    st.tuples(st.just("twin"), st.integers(0, 20), st.sampled_from(NAMES)),
+    st.tuples(st.just("twin"), st.integers(0, 20), st.sampled_from(FILES), st.sampled_from(NAMES)),
 )
 
 
@@ -641,24 +759,102 @@ def _apply(
     elif kind == "delete":
         del state[key]
     elif kind == "twin":
-        state.setdefault((key[0], str(operation[2])), state[key])
+        state.setdefault((str(operation[2]), str(operation[3])), state[key])
     return state, kind != "unindexed", ()
 
 
-def _build(operations: list[tuple[object, ...]], seed: int) -> History:
+#: One revision applies one to three operations, so a revision can, for example, carry
+#: an issue file forward and relocate a symbol elsewhere at the same time.
+revision_strategy = st.lists(operation_strategy, min_size=1, max_size=3)
+Revisions = list[list[tuple[object, ...]]]
+
+
+def _build(revisions: Revisions, seed: int) -> History:
     history = History(seed=seed)
     state: dict[tuple[str, str], int] = {}
     counter = [0]
-    for operation in operations:
-        state, indexed, issues = _apply(state, operation, counter)
+    for operations in revisions:
+        indexed = True
+        issues: set[str] = set()
+        for operation in operations:
+            state, operation_indexed, operation_issues = _apply(state, operation, counter)
+            indexed = indexed and operation_indexed
+            issues.update(operation_issues)
+        if not indexed:
+            issues.clear()  # an unindexed revision has no file issues
         visible = {key: value for key, value in state.items() if key[0] not in issues}
-        history.revision(dict(visible), indexed=indexed, issues=issues)
+        history.revision(dict(visible), indexed=indexed, issues=tuple(sorted(issues)))
     return history
 
 
+KINDS = ("add", "add", "rename", "rename", "move", "edit", "delete", "issue", "twin", "twin")
+
+
+def _random_operation(rng: random.Random) -> tuple[object, ...]:
+    kind = rng.choice(KINDS)
+    index = rng.randrange(21)
+    if kind == "add":
+        return (kind, rng.choice(FILES), rng.choice(NAMES))
+    if kind == "issue":
+        return (kind, rng.choice(FILES))
+    if kind == "rename":
+        return (kind, index, rng.choice(NAMES))
+    if kind == "move":
+        return (kind, index, rng.choice(FILES))
+    if kind == "twin":
+        return (kind, index, rng.choice(FILES), rng.choice(NAMES))
+    return (kind, index)
+
+
+def _relocated_next_to_a_carried_twin(graph: ProvenanceGraph, lineage: SymbolLineage) -> bool:
+    """A symbol relocated in a revision that carries a symbol with the same fingerprint."""
+    ordered = sorted(graph.revisions, key=lambda item: item.sequence)
+    for before, after in pairwise(ordered):
+        if not (before.symbols_indexed and after.symbols_indexed and after.issue_paths):
+            continue
+        carried = {
+            symbol.fingerprint
+            for symbol in graph.symbols_in(before.id)
+            if symbol.file_path in after.issue_paths
+        }
+        for symbol in graph.symbols_in(before.id):
+            trace = lineage.trace(symbol.id)
+            if not trace.successors or symbol.fingerprint not in carried:
+                continue
+            first = graph.get(CodeSymbol, trace.successors[0])
+            if first.revision_id == after.id and first.key != symbol.key:
+                return True
+    return False
+
+
+def test_generated_histories_reach_relocations_rivals_and_carried_twins() -> None:
+    rng = random.Random(7)
+    reasons: set[FreshnessReason] = set()
+    carried_twin = False
+    for _ in range(2000):
+        revisions = [
+            [_random_operation(rng) for _ in range(rng.randint(1, 3))]
+            for _ in range(rng.randint(2, 6))
+        ]
+        graph = _build(revisions, seed=1).graph()
+        lineage = SymbolLineage(graph)
+        reasons.update(lineage.trace(symbol.id).reason for symbol in graph.symbols)
+        carried_twin = carried_twin or _relocated_next_to_a_carried_twin(graph, lineage)
+    assert reasons >= {
+        FreshnessReason.UNCHANGED,
+        FreshnessReason.RELOCATED,
+        FreshnessReason.CONTENT_CHANGED,
+        FreshnessReason.RELOCATED_AND_CHANGED,
+        FreshnessReason.REMOVED,
+        FreshnessReason.AMBIGUOUS_RELOCATION,
+        FreshnessReason.FILE_NOT_PARSED,
+    }
+    assert carried_twin
+
+
 @settings(max_examples=150, deadline=None)
-@given(st.lists(operation_strategy, min_size=1, max_size=8))
-def test_random_histories_are_sound(operations: list[tuple[object, ...]]) -> None:
+@given(st.lists(revision_strategy, min_size=1, max_size=8))
+def test_random_histories_are_sound(operations: Revisions) -> None:
     graph = _build(operations, seed=1).graph()
     lineage = SymbolLineage(graph)
     for symbol in graph.symbols:
@@ -708,12 +904,10 @@ def _describe(graph: ProvenanceGraph, trace: SymbolTrace) -> tuple[object, ...]:
 
 @settings(max_examples=60, deadline=None)
 @given(
-    st.lists(operation_strategy, min_size=1, max_size=7),
+    st.lists(revision_strategy, min_size=1, max_size=7),
     st.integers(min_value=1, max_value=2**32),
 )
-def test_results_invariant_under_id_permutation(
-    operations: list[tuple[object, ...]], seed: int
-) -> None:
+def test_results_invariant_under_id_permutation(operations: Revisions, seed: int) -> None:
     first = _build(operations, seed=0).graph()
     second = _build(operations, seed=seed).graph()
     first_lineage = SymbolLineage(first)

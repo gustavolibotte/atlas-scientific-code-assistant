@@ -543,6 +543,23 @@ def test_a_file_that_cannot_be_opened_is_unreadable(
     assert _files(snapshot)["ok.py"].data == b"y = 2\n"
 
 
+@pytest.mark.parametrize(
+    "code", [errno.ENXIO, errno.EOPNOTSUPP], ids=["linux-socket", "macos-socket"]
+)
+def test_open_errors_that_mean_a_socket_are_not_regular(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    # Opening a socket fails with ENXIO on Linux and with EOPNOTSUPP on macOS (XNU).
+    write_tree(workspace, {"sock.py": "x = 1\n", "ok.py": "y = 2\n"})
+    reader = FilesystemWorkspaceReader(workspace)
+    _failing_open(monkeypatch, "sock.py", code)
+
+    snapshot = reader.read(SUFFIXES, DEFAULT_INDEX_LIMITS)
+
+    assert _files(snapshot)["sock.py"] == WorkspaceFile("sock.py", None, FileIssueKind.NOT_REGULAR)
+    assert _files(snapshot)["ok.py"].data == b"y = 2\n"
+
+
 def test_a_read_error_makes_the_file_unreadable_and_closes_it(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -631,27 +648,33 @@ def test_suffix_matching_is_case_sensitive_and_other_files_are_counted(workspace
     ],
     ids=["backslash", "newline", "tab", "rlo", "zero-width", "colon"],
 )
+@pytest.mark.parametrize("parent", ["", "sub/"], ids=["root", "nested"])
 def test_unrepresentable_file_names_are_counted_and_never_echoed(
-    workspace: Path, name: str, open_spy: list[str]
+    workspace: Path, name: str, parent: str, open_spy: list[str]
 ) -> None:
-    write_tree(workspace, {"ok.py": ""})
-    (workspace / name).write_text("x = 1\n", encoding="utf-8")
+    # Nested names matter: the domain path check alone only rejects ':' in the first segment.
+    write_tree(workspace, {"ok.py": "", f"{parent}keep.txt": ""})
+    (workspace / parent / name).write_text("x = 1\n", encoding="utf-8")
 
     snapshot = _read(workspace)
 
     assert [item.path for item in snapshot.files] == ["ok.py"]
-    assert snapshot.skipped_entries == 1
+    assert snapshot.skipped_entries == 2
     assert name not in open_spy
 
 
+@pytest.mark.parametrize(
+    "name", ["bad\ndir", "drive:dir", "back\\slash"], ids=["newline", "colon", "backslash"]
+)
+@pytest.mark.parametrize("parent", ["", "sub/"], ids=["root", "nested"])
 def test_unrepresentable_directory_names_are_never_entered(
-    workspace: Path, open_spy: list[str]
+    workspace: Path, name: str, parent: str, open_spy: list[str]
 ) -> None:
-    write_tree(workspace, {"ok.py": "", "bad\ndir/inner.py": ""})
+    write_tree(workspace, {"ok.py": "", f"{parent}keep.txt": "", f"{parent}{name}/inner.py": ""})
     snapshot = _read(workspace)
     assert [item.path for item in snapshot.files] == ["ok.py"]
-    assert snapshot.skipped_entries == 1
-    assert "bad\ndir" not in open_spy
+    assert snapshot.skipped_entries == 2
+    assert name not in open_spy
 
 
 @LINUX_ONLY

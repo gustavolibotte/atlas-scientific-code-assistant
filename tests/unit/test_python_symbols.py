@@ -11,6 +11,7 @@ from hypothesis import strategies as st
 from asca.application.ports import DEFAULT_INDEX_LIMITS, FileExtraction, IndexLimits
 from asca.domain.provenance import (
     MODULE_QUALIFIED_NAME,
+    QUALIFIED_NAME_MAX,
     FileIssueKind,
     FingerprintAlgorithm,
     Language,
@@ -248,6 +249,30 @@ def test_non_ascii_and_overlong_names_are_skipped_with_members() -> None:
         "ok",
     }
     assert extraction.skipped_definitions == 3
+
+
+@pytest.mark.parametrize("length", [QUALIFIED_NAME_MAX, QUALIFIED_NAME_MAX + 1])
+def test_qualified_name_limit_is_inclusive(length: int) -> None:
+    top = "f" * length
+    method = "m" * (length - len("C."))
+    nested = "n" * (length - len("C.Inner."))
+    source = (
+        f"def {top}(): pass\n"
+        "class C:\n"
+        f"    def {method}(self): pass\n"
+        "    class Inner:\n"
+        f"        def {nested}(self): pass\n"
+    )
+    extraction = extract(source)
+    kept = {symbol.qualified_name for symbol in extraction.symbols}
+    long_names = {top, f"C.{method}", f"C.Inner.{nested}"}
+    assert all(len(name) == length for name in long_names)
+    if length == QUALIFIED_NAME_MAX:
+        assert kept == {MODULE_QUALIFIED_NAME, "C", "C.Inner", *long_names}
+        assert extraction.skipped_definitions == 0
+    else:
+        assert kept == {MODULE_QUALIFIED_NAME, "C", "C.Inner"}
+        assert extraction.skipped_definitions == 3
 
 
 def test_top_level_def_named___module___is_skipped() -> None:

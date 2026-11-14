@@ -5,7 +5,8 @@ encodes scalars with explicit type tags and references nested definitions by the
 digest (a Merkle tree). A definition's digest never contains its own name, and a bare
 ``Name`` equal to the enclosing module-level definition name is encoded as ``@top``, so
 renaming a recursive function or a class that mentions itself is still a move.
-Docstrings and every other no-op string statement are dropped; f-strings are normalized.
+Docstrings and every other no-op string statement are dropped; f-strings are normalized;
+``del`` targets are flattened.
 Nothing here recurses in Python, so deep inputs never hit the recursion limit.
 
 Any change of output for an input that already had a fingerprint needs a new algorithm
@@ -241,8 +242,29 @@ def _joined_values(values: object) -> list[object]:
     return result
 
 
+def _delete_targets(targets: object) -> list[object]:
+    """N5: flatten Tuple and List targets, so ``del (a, b)`` and ``del [a, b]`` equal ``del a, b``.
+
+    Formatters wrap a long ``del`` in parentheses; deletion runs left to right either way.
+    """
+    if not isinstance(targets, list):
+        raise UnsupportedSyntax("Delete.targets must be a list")
+    result: list[object] = []
+    pending: list[object] = list(reversed(targets))
+    while pending:
+        item = pending.pop()
+        if type(item) is ast.Tuple or type(item) is ast.List:
+            nested = item.elts
+            if not isinstance(nested, list):
+                raise UnsupportedSyntax("Tuple and List elts must be lists")
+            pending.extend(reversed(nested))
+            continue
+        result.append(item)
+    return result
+
+
 def _fields(node: ast.AST, name: str) -> list[tuple[str, object]]:
-    """FIELDS(N): the emitted ``(field, value)`` pairs of ``node`` after N1-N4."""
+    """FIELDS(N): the emitted ``(field, value)`` pairs of ``node`` after N1-N5."""
     emitted: list[tuple[str, object]] = []
     is_definition = isinstance(node, _DEFINITIONS)
     for field in FIELD_TABLE[name]:
@@ -258,6 +280,8 @@ def _fields(node: ast.AST, name: str) -> list[tuple[str, object]]:
                 value = None
         elif name == "ImportFrom" and field == "level" and value is None:
             value = 0
+        elif name == "Delete" and field == "targets":
+            value = _delete_targets(value)
         if value is None or (isinstance(value, list) and not value):
             continue
         emitted.append((field, value))

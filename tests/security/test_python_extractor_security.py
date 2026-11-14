@@ -8,12 +8,14 @@ import tokenize
 import uuid
 import warnings
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
 from asca.application.ports import DEFAULT_INDEX_LIMITS, FileExtraction
 from asca.domain.provenance import MODULE_QUALIFIED_NAME, FileIssueKind
-from asca.infrastructure.indexing.python_symbols import PythonAstExtractor
+from asca.infrastructure.indexing import python_symbols
+from asca.infrastructure.indexing.python_symbols import MAX_AST_DEPTH, PythonAstExtractor
 
 pytestmark = pytest.mark.security
 
@@ -120,6 +122,87 @@ def test_result_is_identical_under_warnings_error() -> None:
         warnings.simplefilter("error")
         strict = _extract(source)
     assert strict == reference
+
+
+def _at_depth(frames: int, data: bytes) -> FileExtraction:
+    if frames == 0:
+        return _extract(data)
+    return _at_depth(frames - 1, data)
+
+
+def _stack_depth() -> int:
+    frame, depth = sys._getframe(), 0
+    while frame is not None:
+        frame, depth = frame.f_back, depth + 1
+    return depth
+
+
+def _chain(terms: int) -> bytes:
+    return ("def f():\n    return " + "+".join(["1"] * terms) + "\n").encode("ascii")
+
+
+@pytest.mark.parametrize("terms", [700, 900, 990, 1100, 3000])
+def test_result_does_not_depend_on_the_callers_stack_depth(terms: int) -> None:
+    # On 3.11 the parser's recursion budget used to shrink with the caller's stack.
+    data = _chain(terms)
+    shallow = _extract(data)
+    # Leave only a few dozen frames of the recursion limit to the extractor.
+    deep = _at_depth(sys.getrecursionlimit() - _stack_depth() - 60, data)
+    assert deep == shallow
+    expected = None if terms + 3 <= MAX_AST_DEPTH else FileIssueKind.TOO_COMPLEX
+    assert shallow.issue is expected
+
+
+def test_nesting_deeper_than_the_bound_is_too_complex_on_every_interpreter() -> None:
+    # Module, FunctionDef and Return, then terms - 1 nested BinOps and the innermost
+    # Constant: the tree is terms + 3 deep.
+    fits = MAX_AST_DEPTH - 3
+    assert _extract(_chain(fits)).issue is None
+    assert _extract(_chain(fits + 1)).issue is FileIssueKind.TOO_COMPLEX
+    unary = ("x = " + "-" * (MAX_AST_DEPTH + 10) + "1\n").encode("ascii")
+    assert _extract(unary).issue is FileIssueKind.TOO_COMPLEX
+
+
+@pytest.mark.parametrize("setting", [0, 640, 4300, 100_000])
+def test_result_does_not_depend_on_the_int_digit_limit(setting: int) -> None:
+    long_literal = b"def f():\n    return " + b"1" * 5000 + b"\n"
+    short_literal = b"def f():\n    return " + b"1" * 1000 + b"\n"
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(setting)
+    try:
+        long_result = _extract(long_literal)
+        short_result = _extract(short_literal)
+        assert sys.get_int_max_str_digits() == setting
+    finally:
+        sys.set_int_max_str_digits(previous)
+    assert long_result.issue is FileIssueKind.SYNTAX_ERROR
+    assert short_result.issue is None
+    assert [item.qualified_name for item in short_result.symbols] == [MODULE_QUALIFIED_NAME, "f"]
+
+
+def test_result_does_not_depend_on_a_lowered_recursion_limit() -> None:
+    data = _chain(900)
+    reference = _extract(data)
+    assert reference.issue is None
+    previous = sys.getrecursionlimit()
+    sys.setrecursionlimit(250)
+    try:
+        lowered = _extract(data)
+        assert sys.getrecursionlimit() == 250
+    finally:
+        sys.setrecursionlimit(previous)
+    assert lowered == reference
+
+
+def test_unexpected_parser_errors_propagate_to_the_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(*args: object, **kwargs: object) -> NoReturn:
+        raise LookupError("parser bug")
+
+    monkeypatch.setattr(python_symbols.ast, "parse", broken)
+    with pytest.raises(LookupError, match="parser bug"):
+        _extract(b"x = 1\n")
 
 
 def test_issue_records_never_contain_source_text() -> None:

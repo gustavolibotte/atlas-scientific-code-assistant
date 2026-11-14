@@ -209,6 +209,54 @@ def test_semantic_differences(left: str, right: str) -> None:
     assert fp(left) != fp(right)
 
 
+DEL_TARGETS = (
+    "self.connection_pool_manager_instance",
+    "self.authentication_token_cache_storage",
+    "self.other_value",
+)
+#: A ``del`` statement longer than this repository's line length (100).
+DEL_SOURCE = "class Session:\n    def close(self):\n        del " + ", ".join(DEL_TARGETS) + "\n"
+#: ``DEL_SOURCE`` exactly as ``ruff format`` rewrites it with this repository's settings.
+DEL_FORMATTED = (
+    "class Session:\n    def close(self):\n        del (\n"
+    + "".join(f"            {target},\n" for target in DEL_TARGETS)
+    + "        )\n"
+)
+
+
+def test_formatter_parenthesized_del_keeps_every_fingerprint() -> None:
+    assert max(len(line) for line in DEL_SOURCE.splitlines()) > 100
+    assert fingerprints(DEL_SOURCE) == fingerprints(DEL_FORMATTED)
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "del (a, b)\n",
+        "del [a, b]\n",
+        "del (a), b\n",
+        "del (a,), [b]\n",
+        "del ((a, b),)\n",
+        "del [(a,), [[b]]]\n",
+    ],
+)
+def test_del_targets_are_flattened(variant: str) -> None:
+    assert fp(f"def f():\n    {variant}") == fp("def f():\n    del a, b\n")
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        ("del a, b\n", "del b, a\n"),
+        ("del (a, b)\n", "del a\n"),
+        ("del a[0], b\n", "del a, b\n"),
+        ("del (a, b)\n", "(a, b)\n"),
+    ],
+)
+def test_del_target_order_and_content_still_matter(left: str, right: str) -> None:
+    assert fp(f"def f():\n    {left}") != fp(f"def f():\n    {right}")
+
+
 def test_rename_keeps_function_fingerprint() -> None:
     assert fp("def f(x):\n    return x + 1\n") == fp("def g(x):\n    return x + 1\n", "g")
 
@@ -395,6 +443,8 @@ def _module(*statements: ast.stmt) -> ast.Module:
         _module(ast.Global(names=[True])),
         _module(ast.Expr(value=ast.JoinedStr(values="abc"))),
         _module(ast.Expr(value=ast.JoinedStr(values=[ast.JoinedStr(values="x")]))),
+        _module(ast.Delete(targets="x")),
+        _module(ast.Delete(targets=[ast.Tuple(elts="x", ctx=ast.Del())])),
     ],
 )
 def test_unknown_node_type_or_constant_is_unsupported(tree: ast.Module) -> None:

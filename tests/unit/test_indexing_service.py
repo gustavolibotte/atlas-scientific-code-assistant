@@ -238,6 +238,15 @@ def test_oversized_workspace_file_becomes_too_large() -> None:
     assert built.files_indexed == 1
 
 
+def test_file_at_the_byte_limit_is_indexed_and_one_more_byte_is_too_large() -> None:
+    data = "x = 1\n"
+    files = snapshot(source("src/a.py", data), source("src/b.py", data + "\n"))
+    built = build_index(files, [EXTRACTOR], IndexLimits(max_file_bytes=len(data)))
+    assert built.issues == (FileIssue("src/b.py", FileIssueKind.TOO_LARGE),)
+    assert {draft.file_path for draft in built.drafts} == {"src/a.py"}
+    assert built.files_indexed == 1
+
+
 def test_reindexing_records_a_new_revision_each_time() -> None:
     service, project = _project()
     indexing = IndexingService(service, [EXTRACTOR])
