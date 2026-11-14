@@ -52,6 +52,7 @@ from asca.infrastructure.knowledge.config import (
     effective_precedence,
     load_settings,
 )
+from asca.infrastructure.knowledge.factory import build_federation
 from asca.infrastructure.knowledge.settings import (
     KnowledgeSettings,
     McpServerSettings,
@@ -75,7 +76,7 @@ _USABLE: Final = frozenset({ProviderStatus.OK, ProviderStatus.PARTIAL})
 
 
 class FederationBuilder(Protocol):
-    """Builds the federation from settings; ``factory.build_federation`` satisfies it."""
+    """Builds the federation from settings; the default wraps ``factory.build_federation``."""
 
     def __call__(
         self, settings: KnowledgeSettings, *, live: bool, clock: Clock
@@ -95,10 +96,13 @@ class _UtcClock:
         return datetime.now(UTC)
 
 
-def _unavailable_build(
-    settings: KnowledgeSettings, *, live: bool, clock: Clock
-) -> FederationService:
-    raise _UsageError("the provider factory is not available in this build")
+def _default_builder(environ: Mapping[str, str]) -> FederationBuilder:
+    """``build_federation`` with the CLI's environment (for MCP token and child variables)."""
+
+    def build(settings: KnowledgeSettings, *, live: bool, clock: Clock) -> FederationService:
+        return build_federation(settings, live=live, clock=clock, environ=environ)
+
+    return build
 
 
 class _Parser(argparse.ArgumentParser):
@@ -632,7 +636,7 @@ def main(
         view = providers_view(settings, env)
         out.write(providers_text(view) if args.format == "text" else dumps(view))
         return EXIT_OK
-    builder = _unavailable_build if build is None else build
+    builder = _default_builder(env) if build is None else build
     try:
         federation = builder(settings, live=args.live, clock=clock or _UtcClock())
         return _RUNNERS[args.command](args, federation, out, err)

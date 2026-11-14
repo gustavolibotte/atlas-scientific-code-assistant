@@ -112,11 +112,15 @@ async def gated_get(
     url: str,
     params: Sequence[tuple[str, str]],
 ) -> RawResponse | ProviderError:
-    """Wait for the rate gate inside the remaining budget, then send one bounded GET."""
-    refused = await gate.wait(deadline - monotonic())
-    if refused is not None:
-        return refused
+    """Wait for the rate gate inside the remaining budget, then send one bounded GET.
+
+    The client is built before the gate opens, so the time between the gate's release
+    and the request leaving is the same for every request.
+    """
     async with client_factory(spec, network) as client:
+        refused = await gate.wait(deadline - monotonic())
+        if refused is not None:
+            return refused
         return await bounded_get(client, url, params)
 
 

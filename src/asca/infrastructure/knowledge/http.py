@@ -24,6 +24,7 @@ from asca.infrastructure.knowledge.settings import NetworkSettings, ProxyMode
 USER_AGENT: Final = f"asca-knowledge/{asca.__version__}"
 JSON_DEPTH_MAX: Final = 64
 RETRY_AFTER_MAX: Final = 3600
+_GATE_SLEEPS_MAX: Final = 8
 KEPT_HEADERS: Final = ("content-type", "retry-after", "cf-mitigated", "www-authenticate")
 # Not declared in typeshed, but part of urllib.request on every supported Python version.
 _proxy_bypass_environment: Callable[[str], bool] = urllib.request.proxy_bypass_environment  # type: ignore[attr-defined]
@@ -323,8 +324,10 @@ class MinIntervalGate:
     async def wait(self, budget_remaining_s: float) -> ProviderError | None:
         """Sleep until the next request may go, or refuse without sleeping when over budget.
 
-        The release time is recorded as the time of the request, which the caller sends
-        immediately after this returns.
+        The actual release time is recorded as the time of the request, which the caller
+        sends immediately after this returns. An event loop may wake a sleeper slightly
+        early, so the gate sleeps again until the clock has really reached the earliest
+        release time (a bounded number of times).
         """
         async with self._current_lock():
             earliest = self._monotonic() if self._last is None else self._last + self._interval
@@ -332,6 +335,10 @@ class MinIntervalGate:
             if delay > 0:
                 if delay > budget_remaining_s:
                     return ProviderError(ProviderErrorKind.RATE_LIMITED, "local_gate")
-                await self._sleep(delay)
+                for _ in range(_GATE_SLEEPS_MAX):
+                    await self._sleep(delay)
+                    delay = earliest - self._monotonic()
+                    if delay <= 0:
+                        break
             self._last = max(self._monotonic(), earliest)
             return None

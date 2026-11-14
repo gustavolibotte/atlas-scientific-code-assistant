@@ -1,4 +1,5 @@
-"""Knowledge CLI over an injected federation of fake providers (no network, no factory)."""
+"""Knowledge CLI over an injected federation of fake providers, and over the real factory
+with replayed fixtures (never the network)."""
 
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from knowledge_adapters import EXIT_QUERY
 from knowledge_contract import (
     FakeProvider,
     fetch_result,
@@ -21,6 +23,7 @@ from knowledge_contract import (
     make_descriptor,
     related,
 )
+from knowledge_exit import GOLDEN, exit_cli_json, exit_transport, run_cli
 
 from asca.application.demo import FixedClock
 from asca.application.knowledge.federation import FederationPolicy, FederationService
@@ -348,13 +351,19 @@ def test_config_details_are_terminal_safe(tmp_path: Path) -> None:
     assert "\\u001b" in err
 
 
-def test_default_build_is_unavailable_until_integration() -> None:
+def test_default_build_uses_the_factory_and_stays_offline_without_live() -> None:
     out, err = io.StringIO(), io.StringIO()
     code = cli.main(["health"], environ={}, stdout=out, stderr=err)
-    assert code == 2
-    assert err.getvalue() == (
-        "asca-knowledge: error: the provider factory is not available in this build\n"
-    )
+    assert code == 3
+    assert err.getvalue() == "note: network providers need --live\n"
+    view = json.loads(out.getvalue())
+    assert [item["id"] for item in view["providers"]] == ["inspire", "arxiv", "hepdata"]
+    assert {item["state"] for item in view["providers"]} == {"not_consulted"}
+    assert {item["error"]["code"] for item in view["providers"]} == {"live_disabled"}
+    out, err = io.StringIO(), io.StringIO()
+    code = cli.main(["search", "liquid argon"], environ={}, stdout=out, stderr=err)
+    assert code == 4
+    assert {item["status"] for item in json.loads(out.getvalue())["providers"]} == {"skipped"}
 
 
 def test_fetch_prints_no_text_without_print_text() -> None:
@@ -613,3 +622,38 @@ def test_live_note_only_when_a_provider_was_skipped_for_it() -> None:
     assert (code, err) == (0, "")
     code, _, err = harness.run("fetch", "local", "notes/a.md")
     assert (code, err) == (0, "")
+
+
+# ---------------------------------------------------------------------- real factory over replay
+
+
+def test_search_live_over_replay_matches_the_exit_golden(tmp_path: Path) -> None:
+    transport = exit_transport()
+    assert exit_cli_json(tmp_path, transport) == GOLDEN.read_text(encoding="utf-8")
+    transport.assert_all_used()
+
+
+def test_search_without_live_sends_no_request_over_the_real_factory(tmp_path: Path) -> None:
+    transport = exit_transport()
+    code, out, err = run_cli(
+        tmp_path, transport, "search", EXIT_QUERY, "--providers", "inspire,arxiv,hepdata"
+    )
+    assert code == 4
+    assert err == "note: network providers need --live\n"
+    assert transport.requests == []
+    view = json.loads(out)
+    assert {item["error"]["code"] for item in view["providers"]} == {"live_disabled"}
+    assert view["groups"] == []
+
+
+def test_exit_run_in_text_format_names_the_sources_not_consulted(tmp_path: Path) -> None:
+    code, out, err = run_cli(
+        tmp_path, exit_transport(), "search", EXIT_QUERY, "--live", "--format", "text"
+    )
+    assert (code, err) == (3, "")
+    lines = out.splitlines()
+    assert lines[-1] == "Sources not consulted: hepdata (blocked/bot_challenge)"
+    assert "provider hepdata: failed (blocked/bot_challenge)" in lines
+    assert sum(line.startswith("group ") for line in lines) == 7
+    titles = [line for line in lines if line.startswith("    provider data: ")]
+    assert titles and "\x1b" not in out

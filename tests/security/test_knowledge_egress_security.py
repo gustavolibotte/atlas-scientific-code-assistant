@@ -1,18 +1,23 @@
-"""Egress rules: public adapters never receive sensitive queries; the recorder records only
-fixed public scenarios (recorder and HTTP adapter part)."""
+"""Egress rules: public adapters never receive sensitive queries or internal documents; the
+recorder records only fixed public scenarios (recorder, HTTP adapter and federation parts)."""
 
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote_plus
 
 import pytest
-from knowledge_adapters import arxiv, hepdata, inspire, transport
+from http_replay import replay_factory
+from knowledge_adapters import CLOCK, arxiv, hepdata, inspire, transport
+from knowledge_exit import LOCAL_TITLE, exit_query, exit_settings, exit_transport, make_library
 
 from asca.application.knowledge.models import KnowledgeQuery, ProviderError, ProviderErrorKind
 from asca.domain.provenance import AccessClass
 from asca.infrastructure.knowledge import recording
 from asca.infrastructure.knowledge.arxiv import ARXIV_API
+from asca.infrastructure.knowledge.factory import build_federation
 from asca.infrastructure.knowledge.hepdata import HEPDATA_SEARCH
 from asca.infrastructure.knowledge.inspire import INSPIRE_API
 from asca.infrastructure.knowledge.recording import (
@@ -87,3 +92,60 @@ def test_the_recorder_refuses_unknown_scenarios_and_non_public_fixtures() -> Non
             recorded_at=recording._UtcClock().now(),
             synthetic=False,
         )
+
+
+# ---------------------------------------------------------------------- federation part
+
+
+def _sent_text(request: Any) -> str:
+    """Everything a request carries, URL-decoded: URL, headers and body."""
+    url = unquote_plus(str(request.url))
+    headers = " ".join(f"{name}: {value}" for name, value in request.headers.items())
+    return f"{url}\n{headers}\n{request.content.decode('utf-8', 'replace')}"
+
+
+def test_internal_local_document_never_appears_in_any_outbound_request(tmp_path: Path) -> None:
+    library = make_library(tmp_path)
+    note = (library / "notes" / "optimal-filtering.md").read_text(encoding="utf-8")
+    replay = exit_transport()
+    federation = build_federation(
+        exit_settings(library),
+        live=True,
+        clock=CLOCK,
+        client_factory=replay_factory(replay),
+        environ={},
+    )
+    result = run(federation.search(exit_query()))
+    local = [
+        item
+        for group in result.groups
+        for item in group.members
+        if item.candidate.ref.provider_id == "local"
+    ]
+    assert len(local) == 1 and local[0].candidate.access_class is AccessClass.INTERNAL
+    assert len(replay.requests) == 3
+    secret_lines = [line.strip() for line in note.splitlines() if line.strip()]
+    for request in replay.requests:
+        sent = _sent_text(request)
+        assert LOCAL_TITLE not in sent
+        assert "Synthetic internal test material" not in sent
+        for line in secret_lines:
+            assert line not in sent
+
+
+def test_internal_query_through_the_federation_sends_zero_requests(tmp_path: Path) -> None:
+    library = make_library(tmp_path)
+    replay = exit_transport()
+    federation = build_federation(
+        exit_settings(library),
+        live=True,
+        clock=CLOCK,
+        client_factory=replay_factory(replay),
+        environ={},
+    )
+    query = KnowledgeQuery(LOCAL_TITLE, 5, AccessClass.INTERNAL)
+    result = run(federation.search(query))
+    assert replay.requests == []
+    skipped = {r.provider_id: r.error for r in result.reports if r.provider_id != "local"}
+    assert skipped == dict.fromkeys(("inspire", "arxiv", "hepdata"), REFUSED)
+    assert result.reports[-1].returned == 1

@@ -1,4 +1,4 @@
-"""Provider text is data, never instructions (HTTP adapter part).
+"""Provider text is data, never instructions (HTTP adapters, federation and CLI).
 
 Hostile titles, authors and snippets come back cleaned (no ESC, BEL, OSC or bidi
 controls) but otherwise verbatim as data; nothing in a response causes another request
@@ -8,13 +8,16 @@ or a subprocess, and landing or snippet URLs are never fetched.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
 from http_replay import make_fixture_document
-from knowledge_adapters import arxiv, fixture, hepdata, inspire, transport
+from knowledge_adapters import CLOCK, arxiv, fixture, hepdata, inspire, transport
+from knowledge_exit import replay_builder
 
 from asca.application.knowledge.models import (
     CandidateRef,
@@ -25,6 +28,7 @@ from asca.application.knowledge.models import (
     SearchResult,
 )
 from asca.application.knowledge.text import is_forbidden, terminal_safe
+from asca.infrastructure.knowledge import __main__ as cli
 from asca.infrastructure.knowledge.arxiv import ARXIV_API
 from asca.infrastructure.knowledge.arxiv import search_params as arxiv_params
 from asca.infrastructure.knowledge.hepdata import HEPDATA_SEARCH
@@ -174,3 +178,47 @@ def test_hostile_json_is_invalid(name: str) -> None:
     outcome = run(inspire(replay).search(PROBE))
     assert outcome == ProviderError(ProviderErrorKind.MALFORMED_RESPONSE, "invalid_json")
     assert len(replay.requests) == 1
+
+
+# ---------------------------------------------------------------------- federation and CLI part
+
+
+def test_hostile_results_through_the_federation_and_cli_stay_inert_data(
+    tmp_path: Path,
+) -> None:
+    replay = transport("hostile/inspire_hostile_title.json")
+    config = tmp_path / "knowledge.toml"
+    config.write_text(
+        'format = "asca-knowledge/1"\n[providers.arxiv]\nenabled = false\n'
+        "[providers.hepdata]\nenabled = false\n",
+        encoding="utf-8",
+    )
+    config.chmod(0o600)
+    outputs: list[str] = []
+    for output_format in ("text", "json"):
+        out, err = io.StringIO(), io.StringIO()
+        code = cli.main(
+            ["--config", str(config), "search", PROBE.text, "--live", "--format", output_format],
+            build=replay_builder(replay),
+            environ={},
+            clock=CLOCK,
+            stdout=out,
+            stderr=err,
+        )
+        assert code == 3  # arxiv and hepdata are disabled and reported
+        outputs.append(out.getvalue() + err.getvalue())
+    text, as_json = outputs
+    for output in outputs:
+        assert "\x1b" not in output and "\x07" not in output
+        for line in output.splitlines():
+            assert_inert(line)
+    title_line = next(line for line in text.splitlines() if "Red alert" in line)
+    assert title_line.startswith("    provider data: ")
+    assert INSTRUCTION in title_line and SHELL in title_line
+    view = json.loads(as_json)
+    (member,) = view["groups"][0]["members"]
+    assert INSTRUCTION in member["title"]
+    assert member["landing_url"] == "https://inspirehep.net/literature/9999911"
+    # Landing and snippet URLs are never fetched: one search request per run, nothing else.
+    assert [request.url.path for request in replay.requests] == ["/api/literature"] * 2
+    assert not replay.unexpected

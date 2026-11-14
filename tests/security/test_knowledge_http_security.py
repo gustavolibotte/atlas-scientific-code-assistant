@@ -438,6 +438,36 @@ def test_min_interval_gate_spaces_requests_within_budget() -> None:
     assert asyncio.run(gate.wait(0.0)) is None
 
 
+class EarlyWakeClock(FakeClock):
+    """An event loop that wakes sleepers a little early, as asyncio may."""
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds - 0.001 if seconds > 0.002 else seconds
+
+
+def test_min_interval_gate_never_releases_early_after_an_early_wake_up() -> None:
+    clock = EarlyWakeClock()
+    gate = MinIntervalGate(3.0, monotonic=clock.monotonic, sleep=clock.sleep)
+    assert asyncio.run(gate.wait(10.0)) is None
+    first = clock.now
+    assert asyncio.run(gate.wait(10.0)) is None
+    assert clock.now - first >= 3.0
+    assert len(clock.sleeps) == 2
+
+
+def test_min_interval_gate_bounds_its_extra_sleeps() -> None:
+    clock = FakeClock()
+
+    async def stuck(seconds: float) -> None:
+        clock.sleeps.append(seconds)
+
+    gate = MinIntervalGate(3.0, monotonic=clock.monotonic, sleep=stuck)
+    assert asyncio.run(gate.wait(10.0)) is None
+    assert asyncio.run(gate.wait(10.0)) is None
+    assert len(clock.sleeps) == 8
+
+
 def test_min_interval_gate_serialises_concurrent_callers() -> None:
     clock = FakeClock()
     gate = MinIntervalGate(1.0, monotonic=clock.monotonic, sleep=clock.sleep)

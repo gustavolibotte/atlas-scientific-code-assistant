@@ -1,13 +1,16 @@
 """Secret handling: RedactedSecret, environment-only tokens and echo redaction.
 
-The MCP canary runs (success, 401, timeout, echo, cross-origin) drive the MCP client
-against a loopback server on 127.0.0.1 with a synthetic canary token.
+The MCP canary runs (success, 401, timeout, echo, cross-origin) drive the MCP client,
+and the CLI over the real factory, against a loopback server on 127.0.0.1 with a
+synthetic canary token.
 """
 
 import asyncio
 import copy
+import io
 import logging
 import pickle
+from pathlib import Path
 
 import pytest
 from mcp_http_server import LoopbackMcpServer
@@ -20,6 +23,7 @@ from asca.application.knowledge.models import (
     ProviderErrorKind,
     SearchResult,
 )
+from asca.infrastructure.knowledge import __main__ as cli
 from asca.infrastructure.knowledge.secrets import (
     REDACTED,
     RedactedSecret,
@@ -205,3 +209,77 @@ def test_mcp_token_variable_must_carry_the_asca_prefix() -> None:
     with pytest.raises(ValueError):
         http_provider("http://127.0.0.1:9/mcp", token_env="GITHUB_TOKEN")
     assert TOKEN_ENV.startswith("ASCA_")
+
+
+# ---------------------------------------------------------------------- CLI canary runs
+
+
+def _mcp_config(path: Path, url: str) -> Path:
+    path.write_text(
+        'format = "asca-knowledge/1"\n'
+        "[providers.inspire]\nenabled = false\n"
+        "[providers.arxiv]\nenabled = false\n"
+        "[providers.hepdata]\nenabled = false\n"
+        "[mcp.test]\n"
+        "enabled = true\n"
+        'transport = "streamable_http"\n'
+        f'url = "{url}"\n'
+        f'token_env = "{TOKEN_ENV}"\n'
+        "allow_insecure_loopback = true\n"
+        'access_class = "internal"\n'
+        'access_conditions = "Synthetic internal test material."\n'
+        'max_query_access = "internal"\n'
+        'search_limit_arg = "limit"\n'
+        'fetch_tool = "fetch"\n'
+        "timeout_s = 10.0\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+    return path
+
+
+@pytest.mark.parametrize("scenario", ["success", "unauthorized"])
+def test_mcp_canary_token_never_reaches_cli_output(
+    scenario: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """The real CLI and factory, with the token only in the environment it is given."""
+    caplog.set_level(logging.DEBUG)
+    server_token = "another-token-0123456789" if scenario == "unauthorized" else TOKEN
+    only = ["--providers", "mcp:test"]
+    commands = [
+        ["search", "synthetic query", "--live", "--query-class", "internal", *only],
+        ["search", "synthetic query", "--live", "--query-class", "internal", "--format", "text"],
+        ["fetch", "mcp:test", "doc-1", "--live", "--print-text"],
+        ["health", "--live", "--deep"],
+        ["providers"],
+        ["providers", "--format", "text"],
+    ]
+    out, err = io.StringIO(), io.StringIO()
+    codes = []
+    with LoopbackMcpServer("normal", token=server_token) as server:
+        config = _mcp_config(tmp_path / "knowledge.toml", server.url)
+        for argv in commands:
+            codes.append(
+                cli.main(
+                    ["--config", str(config), *argv],
+                    environ={TOKEN_ENV: TOKEN},
+                    stdout=out,
+                    stderr=err,
+                )
+            )
+    if scenario == "success":
+        # The fake server's results include two malformed items (PARTIAL), and the disabled
+        # public providers are reported, so searches and health exit 3.
+        assert codes == [3, 3, 0, 3, 0, 0]
+        assert '"status": "partial"' in out.getvalue()
+        assert server.requests and all(request.authorized for request in server.requests)
+    else:
+        assert codes == [4, 4, 4, 3, 0, 0]
+        assert '"code": "http_401"' in out.getvalue()
+    assert f"{TOKEN_ENV} (set)" in out.getvalue()
+    output = out.getvalue() + err.getvalue()
+    assert TOKEN not in output
+    _assert_canary_absent([], caplog, capfd)
