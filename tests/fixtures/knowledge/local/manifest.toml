@@ -1,0 +1,14 @@
+# Synthetic local library used by the M3 tests. Everything here is invented test material.
+format = "asca-library/1"
+
+[[documents]]
+path = "notes/optimal-filtering.md"
+title = "Synthetic local note on liquid argon energy reconstruction with neural networks"
+version = "2026-11-01"
+access_class = "internal"
+access_conditions = "Synthetic internal test material; not an ATLAS document."
+authority_hint = "working_material"
+pids = ["arxiv:2109.05124"]
+license = "CC0-1.0"
+issued = "2026-11"
+authors = ["A. Curator"]
