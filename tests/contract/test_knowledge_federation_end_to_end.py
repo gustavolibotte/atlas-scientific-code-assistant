@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import random
-import sys
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,7 +34,7 @@ from knowledge_exit import (
     make_library,
     recorded,
 )
-from mcp_testing import make_settings
+from mcp_testing import make_settings, trusted_python
 from provenance_builders import CountingIdFactory, StepClock
 
 from asca.application.knowledge.federation import (
@@ -416,7 +414,7 @@ def test_unavailable_provider_variants(tmp_path: Path) -> None:
     # A configured stdio MCP server whose command exits at once is reported as failed.
     broken = make_settings(
         server_id="broken",
-        command=os.path.realpath(sys.executable),
+        command=trusted_python(),
         args=("-I", "-c", "import sys; sys.exit(3)"),
         timeout_s=5.0,
     )

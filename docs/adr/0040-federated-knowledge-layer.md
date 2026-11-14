@@ -170,6 +170,11 @@ public service.
   stdio server, its directory must not be group- or world-writable either. A stdio
   command must be absolute, is resolved with `realpath`, and must be an executable
   regular file owned by the user or root and not group- or world-writable.
+  Some interpreters fail this check by design: the python.org framework build on macOS
+  is group-writable by `admin`, so pointing a stdio server straight at it gives
+  `unsafe_command`. Use an interpreter you own (for example one installed by `uv`), or
+  a user-owned wrapper script with mode 0755. The test suite runs its fake stdio server
+  through such a wrapper for the same reason.
 - Every table forbids unknown keys, so an inline `token` or `password` is refused.
   Errors print a fixed code plus the `loc` and `type` of each problem, never a value.
 - Secrets come from the environment only, named by `ASCA_`-prefixed variables

@@ -5,8 +5,11 @@ Everything is synthetic. The canary token is a fake RFC 6750 value used only in 
 
 from __future__ import annotations
 
+import functools
 import os
+import shlex
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -40,6 +43,30 @@ class FixedClock:
         return RETRIEVED_AT
 
 
+@functools.cache
+def trusted_python() -> str:
+    """A private, user-owned wrapper that executes the test interpreter.
+
+    The stdio adapter refuses a command that is group- or world-writable or owned by
+    another user. Some interpreters fail that check on CI hosts (for example the
+    python.org framework build on macOS runners is group-writable by ``admin``), so the
+    tests run the real interpreter through a wrapper the current user owns with mode 0755.
+    """
+    directory = Path(tempfile.mkdtemp(prefix="asca-mcp-python-"))
+    directory.chmod(0o700)
+    wrapper = directory / "python"
+    interpreter = os.path.realpath(sys.executable)
+    # ``env -u`` drops the variables the shell itself exports, so the child sees exactly
+    # the environment the adapter built (BSD and GNU ``env`` both support ``-u``).
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        f'exec /usr/bin/env -u PWD -u OLDPWD -u SHLVL -u _ {shlex.quote(interpreter)} "$@"\n',
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    return str(wrapper)
+
+
 def make_settings(**overrides: Any) -> McpServerSettings:
     """A stdio server running the fake server with the real (resolved) interpreter."""
     values: dict[str, Any] = {
@@ -50,7 +77,7 @@ def make_settings(**overrides: Any) -> McpServerSettings:
         "token_env": None,
         "allow_private_network": False,
         "allow_insecure_loopback": False,
-        "command": os.path.realpath(sys.executable),
+        "command": trusted_python(),
         "args": stdio_args("normal"),
         "env": (),
         "access_class": AccessClass.INTERNAL,
