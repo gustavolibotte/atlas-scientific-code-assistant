@@ -29,8 +29,10 @@ from asca.domain.provenance import AccessClass
 pytestmark = pytest.mark.security
 
 SDK_DEFAULT_ENV = {"HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"}
-# Python's PEP 538 locale coercion in the guard interpreter may add LC_CTYPE.
-INTERPRETER_ENV = {"LC_CTYPE"}
+# Variables the child process sets for itself, never inherited from the parent:
+# CPython's locale coercion adds LC_CTYPE, and macOS CoreFoundation (loaded by the
+# framework interpreter) adds __CF_USER_TEXT_ENCODING to the process environment.
+INTERPRETER_ENV = {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"}
 
 
 def _gone(pid: int, wait_s: float = 2.0) -> bool:
