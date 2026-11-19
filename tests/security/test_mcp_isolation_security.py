@@ -68,7 +68,8 @@ def test_child_environment_is_scrubbed_and_cwd_is_private(
     assert keys <= SDK_DEFAULT_ENV | INTERPRETER_ENV | {"CHILD_TOKEN"}
     cwd = Path(report["cwd"])
     assert cwd.name.startswith("asca-mcp-")
-    assert cwd.parent == Path(tempfile.gettempdir())
+    # The child reports its symlink-resolved cwd (macOS: /private/var/... for /var/...).
+    assert cwd.parent.resolve() == Path(tempfile.gettempdir()).resolve()
     assert report["cwd_mode"] == 0o700
     assert not cwd.exists()
     assert _gone(report["pid"])
