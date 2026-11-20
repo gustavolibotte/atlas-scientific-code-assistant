@@ -188,11 +188,13 @@ def test_unlisted_files_are_ignored(tmp_path: Path) -> None:
 
 
 def test_scoring_and_order(tmp_path: Path) -> None:
+    # The expected order (z, x, y, e) differs from path order (e, x, y, z), so a broken score
+    # (for example all zero) cannot pass; x and y tie and are ordered by path.
     manifest = HEADER + "".join(
         [
-            document("b-text-only.md", "Plain note"),
-            document("a-title.md", "Pulse shapes"),
-            document("c-tie.md", "Plain note"),
+            document("y-text-only.md", "Plain note"),
+            document("z-title.md", "Pulse shapes"),
+            document("x-tie.md", "Plain note"),
             document("d-missing-term.md", "Pulse note"),
             document("e-weak.md", "Plain note"),
         ]
@@ -202,9 +204,9 @@ def test_scoring_and_order(tmp_path: Path) -> None:
         manifest,
         {
             # title "Pulse" scores 3 per occurrence; text occurrences score 1.
-            "a-title.md": "one shape here",
-            "b-text-only.md": "pulse pulse pulse shape",
-            "c-tie.md": "pulse pulse pulse shape",
+            "z-title.md": "one shape here",
+            "y-text-only.md": "pulse pulse pulse shape",
+            "x-tie.md": "pulse pulse pulse shape",
             "d-missing-term.md": "pulse pulse pulse pulse",
             "e-weak.md": "PULSE Shape",
         },
@@ -212,12 +214,28 @@ def test_scoring_and_order(tmp_path: Path) -> None:
     result = search(root, "the pulse shape")
     assert isinstance(result, SearchResult)
     ranked = [(item.ref.native_id, item.rank) for item in result.candidates]
-    assert ranked == [("a-title.md", 0), ("b-text-only.md", 1), ("c-tie.md", 2), ("e-weak.md", 3)]
+    assert ranked == [("z-title.md", 0), ("x-tie.md", 1), ("y-text-only.md", 2), ("e-weak.md", 3)]
     assert result.total_reported == 4
     limited = search(root, "pulse shape", limit=2)
     assert isinstance(limited, SearchResult)
-    assert [item.ref.native_id for item in limited.candidates] == ["a-title.md", "b-text-only.md"]
+    assert [item.ref.native_id for item in limited.candidates] == ["z-title.md", "x-tie.md"]
     assert limited.total_reported == 4
+
+
+def test_a_query_with_sentence_punctuation_or_unicode_still_matches(tmp_path: Path) -> None:
+    manifest = HEADER + document("note.md", "Calibration note") + document("fisica.md", "Física")
+    root = library(
+        tmp_path / "lib",
+        manifest,
+        {"note.md": "The liquid argon calorimeter works well; jet p_T is fine.", "fisica.md": "x"},
+    )
+    for text in ("liquid argon calorimeter.", "liquid argon calorimeter...", "jet p_T"):
+        result = search(root, text)
+        assert isinstance(result, SearchResult), text
+        assert [item.ref.native_id for item in result.candidates] == ["note.md"], text
+    only_accent = search(root, "física")
+    assert isinstance(only_accent, SearchResult)
+    assert [item.ref.native_id for item in only_accent.candidates] == ["fisica.md"]
 
 
 def test_empty_query_is_unsupported(tmp_path: Path) -> None:
@@ -448,6 +466,9 @@ INVALID_MANIFESTS = {
         document("a.md", "A", authority_hint='"approved_internal"')
     ),
     "bad pid": manifest_bytes(document("a.md", "A", pids='["url:https://example.org"]')),
+    "duplicate doi pid": manifest_bytes(
+        document("a.md", "A", pids='["doi:10.5555/a.1", "DOI:10.5555/A.1"]')
+    ),
     "duplicate pid": manifest_bytes(
         document("a.md", "A", pids='["arxiv:2109.05124", "arXiv:2109.05124v2"]')
     ),

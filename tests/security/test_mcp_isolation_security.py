@@ -155,3 +155,45 @@ def test_item_access_claims_can_only_restrict() -> None:
     assert all(
         item.access_conditions == "Synthetic internal test material." for item in strict.candidates
     )
+
+
+def _command(path: Path, mode: int = 0o755) -> Path:
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+def test_runtime_refuses_a_command_owned_by_another_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    command = _command(tmp_path / "server")
+    provider = stdio_provider("normal", command=str(command))
+    assert provider._checked_command() == os.path.realpath(command)
+    real_stat = os.stat
+    resolved = os.path.realpath(command)
+
+    def foreign(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        result = real_stat(path, *args, **kwargs)  # type: ignore[call-overload]
+        if path == resolved:
+            fields = list(result)
+            fields[4] = result.st_uid + 4242
+            return os.stat_result(fields)
+        return result  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(os, "stat", foreign)
+    outcome = asyncio.run(provider.search(INTERNAL_QUERY))
+    assert outcome == ProviderError(ProviderErrorKind.NOT_CONFIGURED, "unsafe_command")
+
+
+def test_runtime_resolves_and_checks_the_target_of_a_symlinked_command(tmp_path: Path) -> None:
+    target = _command(tmp_path / "server")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    assert stdio_provider("normal", command=str(link))._checked_command() == os.path.realpath(
+        target
+    )
+    writable = _command(tmp_path / "writable", 0o777)
+    bad_link = tmp_path / "bad-link"
+    bad_link.symlink_to(writable)
+    outcome = asyncio.run(stdio_provider("normal", command=str(bad_link)).search(INTERNAL_QUERY))
+    assert outcome == ProviderError(ProviderErrorKind.NOT_CONFIGURED, "unsafe_command")

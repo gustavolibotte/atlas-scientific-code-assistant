@@ -77,12 +77,25 @@ provider, the adapter version, the native id and the retrieval time are written 
 the M1 `authority_basis`; the access source goes into `access_conditions`. A source and
 its first version are written in one commit (`ProvenanceService.record_source_version`).
 
+The Source's persistent identifier is the first **identity** PID in the order non-HEPData
+DOI, arXiv, INSPIRE, CDS report, HEPData concept DOI; a candidate with no identity PID
+falls back to its own local-document path, then its URL. A RELATED DOI, arXiv id or
+INSPIRE id (a HEPData dataset's paper, an MCP item's metadata) is an assertion about
+another work and is never the primary PID, so it cannot attach a dataset or an internal
+document to a public paper's Source. An existing Source is found through the candidate's
+own PIDs and, when the caller passes them (`group_identity_pids`, the evidence group's
+`identity_pids`), through the group's, so an arXiv preprint without a DOI joins the
+Source INSPIRE created under the DOI whatever the registration order.
+
 ### 3. Federation
 
 `FederationService` runs the selected providers concurrently (at most 8 at a time).
 
 - Each provider gets an outer deadline of its own timeout plus a 3 s grace, so the
-  worst-case wall clock is the largest timeout plus 3 s (at most 33 s).
+  worst-case wall clock is the largest timeout plus 3 s (at most 33 s). The deadline
+  starts before a provider waits for one of the 8 slots, so time spent queued counts
+  against it: with more than 8 hung providers the surplus ones are reported as
+  `timeout/federation_deadline` at the same moment, never later.
 - **Every configured provider is reported**, enabled or disabled, with status `ok`,
   `partial` (items dropped), `failed` or `skipped`, and a `ProviderError` when not OK.
   The CLI ends its text output with "Sources not consulted: ...".
@@ -129,6 +142,12 @@ filesystem.
   parsed strictly (no duplicate keys, no NaN, bounded depth).
 - Proxies come from the environment (or explicit configuration) and are wired into
   the transport, because an explicit httpx2 transport ignores environment proxies.
+  A loopback host (`127.0.0.1`, `::1`, `localhost`) is **never** proxied in any mode: a
+  proxy would receive the plain `http://` request, with an MCP bearer token and the
+  query, and would connect to its own loopback. Such an endpoint also gets the
+  resolved-address check.
+- The CLI runs its event loop with a daemon-thread default executor, so a name lookup
+  or file read that outlives its provider timeout never delays the report or the exit.
 
 ### 5. Query egress by access class
 
@@ -149,13 +168,19 @@ public service.
   refuses a changed server before any call.
 - Results are data. PIDs asserted by an MCP server are recorded as **related**, never
   identity, so internal tool output never merges into public evidence groups.
-- Secrets that a server echoes back are redacted (`[REDACTED]`) and counted.
+- Secrets that a server echoes back are redacted (`[REDACTED]`) and counted; a listed
+  tool name that contains the token is left out of the health report.
 - stdio servers run behind a stdlib-only **guard process** that sets resource limits
   (CPU, open files, file size, address space on Linux) and caps output lines (4 MiB)
   and total output (16 MiB), because the SDK's stdio buffer is unbounded. The child
   gets only the SDK's default environment plus explicitly mapped `ASCA_` variables, and
-  a fresh 0o700 working directory. **This is resource protection, not a sandbox**
-  (isolation is M6).
+  a fresh 0o700 working directory. The child leads its own process group and the guard
+  SIGKILLs that whole group whenever it stops (output limit, broken pipe, SIGTERM or the
+  child's exit), because the SDK sends its group signal only while the guard is alive.
+  The SIGTERM handler never waits on the child, so a server that closed stdout but keeps
+  running cannot block the shutdown. A background process that keeps the server's stdout
+  open still delays the guard until it exits. **This is resource protection, not a
+  sandbox** (isolation is M6).
 - AGPL-licensed servers such as `cerngitlab-mcp` only ever run as separate processes;
   they are never imported.
 
@@ -256,8 +281,8 @@ against the fetched text.
 - **stdio is not sandboxed.** The guard bounds resources and output but gives no
   filesystem or network isolation; that is M6.
 - **The local library reads in a worker thread.** A read that hangs on a stuck
-  filesystem returns `provider_timeout` on time, but the CLI process can only exit once
-  the thread finishes.
+  filesystem returns `provider_timeout` on time; the CLI abandons the daemon thread and
+  exits, but a long-lived embedding of the provider keeps the thread until it returns.
 - **A retrieval record and a fetched-text store are deferred to M4** (a
   `SourceRetrieval` record with provider, adapter version, ref, source URL, raw hash
   and licences; migration 0003; export schema v2; its own ADR). Until then the

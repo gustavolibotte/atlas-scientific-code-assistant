@@ -146,6 +146,9 @@ def test_inspire_record_ids() -> None:
         ("atl-phys-pub-2022-010", PidRole.IDENTITY),
         ("CERN-EP-2021-123", PidRole.IDENTITY),
         ("FERMILAB-PUB-21-001-E", PidRole.RELATED),
+        ("ATLAS-COM-CONF-2023-020", PidRole.RELATED),
+        ("atl-com-phys-2011-818", PidRole.RELATED),
+        ("ATL-COM-LARG-2021-029", PidRole.RELATED),
     ],
 )
 def test_report_numbers_are_identity_only_for_atlas_and_cern(raw: str, role: PidRole) -> None:

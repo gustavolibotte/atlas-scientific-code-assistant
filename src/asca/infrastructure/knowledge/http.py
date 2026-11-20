@@ -20,6 +20,7 @@ import httpx2
 import asca
 from asca.application.knowledge.models import ProviderError, ProviderErrorKind
 from asca.infrastructure.knowledge.settings import NetworkSettings, ProxyMode
+from asca.infrastructure.knowledge.url_guard import LOOPBACK_HOSTS
 
 USER_AGENT: Final = f"asca-knowledge/{asca.__version__}"
 JSON_DEPTH_MAX: Final = 64
@@ -62,8 +63,12 @@ class UnsupportedEncoding(Exception):  # noqa: N818 - name fixed by the M3 spec
 
 
 def select_proxy(host: str, network: NetworkSettings) -> str | None:
-    """The HTTPS proxy for ``host``; an explicit transport disables httpx2's env handling."""
-    if network.proxy_mode is ProxyMode.NONE:
+    """The HTTPS proxy for ``host``; an explicit transport disables httpx2's env handling.
+
+    A loopback host is never proxied, whatever the mode: the proxy would receive the request
+    (and an MCP bearer token) in the clear and would connect to its own loopback.
+    """
+    if network.proxy_mode is ProxyMode.NONE or host.strip("[]").lower() in LOOPBACK_HOSTS:
         return None
     if network.proxy_mode is ProxyMode.EXPLICIT:
         return network.proxy_url

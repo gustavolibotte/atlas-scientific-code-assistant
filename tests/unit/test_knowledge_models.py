@@ -22,6 +22,7 @@ from asca.application.knowledge.models import (
     FetchedDocument,
     FetchResult,
     HealthState,
+    KnowledgeQuery,
     LicenseInfo,
     LicenseScope,
     PartialDate,
@@ -41,6 +42,7 @@ from asca.application.knowledge.text import (
     clean_block,
     clean_line,
     is_block,
+    is_forbidden,
     is_line,
     query_terms,
     terminal_safe,
@@ -508,6 +510,36 @@ def test_clean_block_keeps_newlines_and_tabs() -> None:
     assert not is_block("a\x1bb") and not is_block(" ") and not is_block(5)
 
 
+FORBIDDEN_CODES = [
+    *(0x00, 0x01, 0x07, 0x1B, 0x1F),  # C0
+    *(0x7F, 0x80, 0x85, 0x9B, 0x9F),  # DEL and C1, including the 8-bit CSI (U+009B)
+    *range(0x202A, 0x202F),  # embeddings and overrides
+    *range(0x2066, 0x206A),  # isolates, including the pop U+2069
+    *(0x200E, 0x200F, 0xFEFF),
+]
+ALLOWED_CODES = [0x20, 0x41, 0x7E, 0xA1, 0xFF, 0x2065, 0x206A, 0x2070]
+
+
+@pytest.mark.parametrize("code", FORBIDDEN_CODES, ids=lambda code: f"U+{code:04X}")
+def test_every_forbidden_character_is_refused_removed_and_escaped(code: int) -> None:
+    char = chr(code)
+    assert is_forbidden(char)
+    assert not is_line(f"a{char}b")
+    assert not is_block(f"a{char}b") or char in "\n\t"
+    assert clean_line(f"a{char}b", 10) in {("ab", False), ("a b", False)}
+    assert terminal_safe(f"a{char}b") == f"a\\u{code:04x}b"
+    with pytest.raises(ValueError):
+        KnowledgeQuery(f"a{char}b")
+
+
+@pytest.mark.parametrize("code", ALLOWED_CODES, ids=lambda code: f"U+{code:04X}")
+def test_neighbouring_characters_are_not_over_blocked(code: int) -> None:
+    char = chr(code)
+    assert not is_forbidden(char)
+    assert is_line(f"a{char}b")
+    assert terminal_safe(f"a{char}b") == f"a{char}b"
+
+
 def test_terminal_safe_escapes_controls_and_bidi() -> None:
     escaped = terminal_safe("ok\n\x1b]52;c;x\x07‮\t")
     assert "\x1b" not in escaped and "‮" not in escaped
@@ -527,6 +559,20 @@ def test_query_terms_drop_stopwords_and_duplicates() -> None:
         "liquid",
     )
     assert query_terms("title:(foo) AND bar:baz") == ("title", "foo", "bar", "baz")
+
+
+def test_query_terms_drop_sentence_punctuation_and_keep_unicode_and_underscores() -> None:
+    assert query_terms("liquid argon calorimeter.") == ("liquid", "argon", "calorimeter")
+    assert query_terms("see 1.5... and e.g. e+e- collisions.") == (
+        "see",
+        "1.5",
+        "e.g",
+        "e+e-",
+        "collisions",
+    )
+    assert query_terms("jet p_T resolution") == ("jet", "p_t", "resolution")
+    assert query_terms("Δη ττ") == ("δη", "ττ")
+    assert query_terms("calibração da física") == ("calibração", "da", "física")
 
 
 def test_retrieved_at_fixture_is_utc() -> None:

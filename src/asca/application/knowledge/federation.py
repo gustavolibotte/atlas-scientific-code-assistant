@@ -354,9 +354,14 @@ class FederationService:
         call: Callable[[], Awaitable[T]],
         semaphore: asyncio.Semaphore,
     ) -> T | ProviderError:
-        """Never raises an ``Exception``; cancellation and other ``BaseException`` propagate."""
+        """Never raises an ``Exception``; cancellation and other ``BaseException`` propagate.
+
+        The deadline starts before the semaphore is acquired, so time spent queued behind
+        ``max_parallel`` other providers counts against it: the wall clock of a search stays
+        bounded by the largest timeout plus the grace, however many providers are selected.
+        """
         try:
-            async with semaphore, asyncio.timeout(descriptor.timeout_s + self._policy.grace_s):
+            async with asyncio.timeout(descriptor.timeout_s + self._policy.grace_s), semaphore:
                 return await call()
         except TimeoutError:
             return ProviderError(ProviderErrorKind.TIMEOUT, "federation_deadline")

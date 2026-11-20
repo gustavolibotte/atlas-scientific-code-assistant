@@ -53,7 +53,7 @@ Test ids are relative to the repository root and run with `uv run pytest -q <id>
 - `tests/contract/test_local_library.py::test_unusable_listed_documents_are_dropped`
 - `tests/contract/test_local_library.py::test_missing_manifest_is_not_configured`
 - `tests/contract/test_local_library.py::test_invalid_manifests_are_refused` (extra key,
-  missing `access_class`, duplicate path, bad suffix and 26 more cases)
+  missing `access_class`, duplicate path, bad suffix and 27 more cases)
 - `tests/contract/test_local_library.py::test_published_hint_and_report_numbers`
 
 ### Configuration
@@ -95,9 +95,14 @@ Test ids are relative to the repository root and run with `uv run pytest -q <id>
 
 - `tests/unit/test_knowledge_policy.py` (A only for refereed INSPIRE with a curated
   non-HEPData DOI and public access; arXiv is D; never B or C, property tested).
-- `tests/unit/test_knowledge_registration.py` (every refusal code, primary PID order,
-  reuse through an identity PID, the `authority_basis` template, the atomic
-  `record_source_version`).
+- `tests/unit/test_knowledge_registration.py` (every refusal code and each refusal rule in
+  isolation, primary PID order, a RELATED DOI never primary, reuse through an identity
+  PID and through the evidence group's PIDs in either registration order, the
+  `authority_basis` template, the atomic `record_source_version`).
+- `tests/unit/test_federation.py` (providers bounded by `max_parallel`, queue time counted
+  against the deadline, fetch never lowers access).
+- `tests/contract/test_inspire_adapter.py` (the arXiv DataCite DOI is neither an identity
+  nor a journal label; ATLAS-COM draft numbers are related and never the version label).
 
 ## Security negative tests
 
@@ -107,10 +112,12 @@ Every rule below has explicit negative tests marked `security`.
 |---|---|
 | `tests/security/test_knowledge_http_security.py` | byte caps before and while reading; compressed responses refused; `identity` always requested; redirects refused and Location never requested; no cookie replay; no `.netrc` credentials; proxy selection; TLS verification always on; strict JSON; the interval gate never releases early after an early wake-up and bounds its extra sleeps |
 | `tests/security/test_knowledge_url_guard_security.py` | http only for loopback with the flag; userinfo, query, fragment and bad ports refused; link-local (cloud metadata), multicast, unspecified and reserved always refused; private ranges and loopback need flags; a mixed DNS answer is refused; messages never contain the URL |
-| `tests/security/test_knowledge_secrets_security.py` | `RedactedSecret` never prints, formats or pickles; `ASCA_` variable names only; tokens with CR/LF or too short refused; an MCP canary token never leaks from the client or from the CLI's stdout, stderr and logs (success and 401); echoed tokens are redacted; the bearer never leaves the configured origin |
-| `tests/security/test_knowledge_config_security.py` | group- or world-writable, foreign-owned, symlinked or oversized configuration refused; group-writable directory with a stdio server refused; inline `token`/`password` refused without echo; `token_env = "GITHUB_TOKEN"`, env source `HOME`, `LD_PRELOAD`, relative, writable or non-executable commands, and unsafe URLs refused; the default path is never the working directory |
-| `tests/security/test_knowledge_xml_security.py` | billion laughs, XXE (file and http), external DTD, parameter entities and quadratic blowup are `invalid_xml` with no additional request; at most 25 entries; oversized feeds refused |
-| `tests/security/test_mcp_isolation_security.py` | scrubbed child environment and private working directory; output limits kill the server; only configured tools are called; sampling and elicitation refused; MCP access claims can only restrict |
+| `tests/security/test_knowledge_secrets_security.py` | `RedactedSecret` never prints, formats or pickles; `ASCA_` variable names only; tokens with CR/LF or too short refused; an MCP canary token never leaks from the client or from the CLI's stdout, stderr and logs (success and 401); echoed tokens are redacted, also in a listed tool name; the bearer never leaves the configured origin |
+| `tests/security/test_knowledge_config_security.py` | group- or world-writable, foreign-owned, symlinked or oversized configuration refused; group-writable directory with a stdio server refused; inline `token`/`password` refused without echo; `token_env = "GITHUB_TOKEN"`, env source `HOME`, `LD_PRELOAD`, relative, writable, foreign-owned or non-executable commands, and unsafe URLs refused; the default path is never the working directory |
+| `tests/security/test_knowledge_xml_security.py` | billion laughs, XXE (file and http), external DTD, parameter entities and quadratic blowup are `invalid_xml` with no additional request, also when the DOCTYPE sits beyond the byte pre-check window (only the defusedxml flags stop those); at most 25 entries; oversized feeds refused |
+| `tests/security/test_mcp_isolation_security.py` | scrubbed child environment and private working directory; output limits kill the server; only configured tools are called; sampling and elicitation refused; MCP access claims can only restrict; a foreign-owned or symlinked unsafe stdio command is refused at run time |
+| `tests/security/test_mcp_egress_security.py` | no request or bearer token reaches a proxy for an http loopback MCP endpoint (explicit and environment proxy); a name resolving to a private, CGNAT, link-local or loopback address is refused unless `allow_private_network` allows a private range |
+| `tests/unit/test_mcp_stdio_guard.py` | the guard exits on SIGTERM when the server closed stdout but keeps running, and kills the server's descendants on an output limit and on exit |
 | `tests/security/test_knowledge_injection_as_data.py` | hostile titles and snippets come back cleaned as data, through the adapters and through the federation and CLI (text and JSON); terminal output has no escape byte; titles are prefixed `provider data:`; landing and snippet URLs are never fetched; no subprocess |
 | `tests/security/test_knowledge_egress_security.py` | an internal query sends zero requests to public providers, at adapter and federation level; an internal local document's title and text never appear in any outbound request; the recorder refuses non-public providers and free-form URLs |
 | `tests/security/test_knowledge_network_guard_security.py` | the kill switch blocks internet connections and lookups, allows loopback; `CI` with `ASCA_LIVE` refused |
@@ -191,7 +198,7 @@ passed (3 passed, 1 deselected). About ten live requests were sent in total.
 - **DNS rebinding (TOCTOU)**: MCP addresses are checked before each session, not at
   connect time.
 - **Local library reads run in a worker thread**: a hung filesystem read times out on
-  time, but the process exits only when the read returns.
+  time; the CLI abandons the daemon thread and exits.
 - No retries, no pagination beyond page 1, no cache, no CLI `register`.
 
 ## Quality gates

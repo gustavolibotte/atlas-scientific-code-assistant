@@ -16,7 +16,12 @@ from asca.application.knowledge.models import (
     PidRole,
     ProviderKind,
 )
-from asca.application.knowledge.pids import HEPDATA_DOI_PREFIX, pid_sort_key, pid_text
+from asca.application.knowledge.pids import (
+    ARXIV_DOI_PREFIX,
+    HEPDATA_DOI_PREFIX,
+    pid_sort_key,
+    pid_text,
+)
 from asca.application.knowledge.text import ELLIPSIS, is_line
 from asca.domain.provenance import (
     PUBLISHED_PID_SCHEMES,
@@ -91,7 +96,7 @@ def _inspire(candidate: KnowledgeCandidate) -> AuthoritySuggestion:
             item.pid
             for item in _identity(candidate, PidScheme.DOI)
             if item.origin is PidOrigin.CURATED_LINK
-            and not item.pid.value.startswith(HEPDATA_DOI_PREFIX)
+            and not item.pid.value.startswith((HEPDATA_DOI_PREFIX, ARXIV_DOI_PREFIX))
         ),
         key=pid_sort_key,
     )

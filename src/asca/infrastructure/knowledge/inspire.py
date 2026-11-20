@@ -47,6 +47,7 @@ from asca.application.knowledge.models import (
     license_from_url,
 )
 from asca.application.knowledge.pids import (
+    ARXIV_DOI_PREFIX,
     normalize_arxiv,
     normalize_doi,
     normalize_inspire,
@@ -228,7 +229,9 @@ def _pids(metadata: _Metadata, recid: PersistentIdentifier) -> tuple[CandidatePi
     for doi in metadata.dois:
         pid = normalize_doi(doi.value)
         if pid is not None:
-            is_publication = doi.material in _PUBLICATION_MATERIALS
+            is_publication = doi.material in _PUBLICATION_MATERIALS and not (
+                pid.value.startswith(ARXIV_DOI_PREFIX)
+            )
             publication[pid] = publication.get(pid, True) and is_publication
     for pid, is_publication in publication.items():
         role = PidRole.IDENTITY if is_publication else PidRole.RELATED

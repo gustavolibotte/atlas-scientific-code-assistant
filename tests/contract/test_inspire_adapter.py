@@ -23,6 +23,7 @@ from knowledge_contract import assert_provider_contract
 
 from asca.application.knowledge.models import (
     CandidateRef,
+    CandidateVersion,
     ContentAvailability,
     DocumentKind,
     FetchResult,
@@ -510,6 +511,59 @@ def test_version_falls_back_to_report_number_then_record_snapshot() -> None:
         (VersionKind.RECORD_SNAPSHOT, "retrieved@2026-11-14"),
         (VersionKind.RECORD_SNAPSHOT, "retrieved@2026-11-14"),
     ]
+
+
+def test_the_arxiv_datacite_doi_is_neither_a_publication_doi_nor_a_journal_label() -> None:
+    """Record 2846950 style: only the arXiv DOI, no journal; and a refereed variant."""
+    arxiv_only = hit(
+        9999901,
+        dois=[{"value": "10.48550/arXiv.2410.06573"}],
+        arxiv_eprints=[{"value": "2410.06573"}],
+        refereed=True,
+    )
+    both = hit(
+        9999902,
+        dois=[{"value": "10.48550/arXiv.2410.06574"}, {"value": "10.5506/APhysPolB.55.1-A1"}],
+        arxiv_eprints=[{"value": "2410.06574"}],
+        refereed=True,
+    )
+    outcome = run(inspire(transport(search_doc([arxiv_only, both]))).search(QUERY))
+    assert isinstance(outcome, SearchResult)
+    first, second = outcome.candidates
+    assert pid_texts(first, PidRole.IDENTITY) == {"arxiv:2410.06573", "inspire:9999901"}
+    assert pid_texts(first, PidRole.RELATED) == {"doi:10.48550/arxiv.2410.06573"}
+    assert first.version.kind is VersionKind.RECORD_SNAPSHOT
+    suggestion = suggest_authority(first)
+    assert suggestion.authority is SourceAuthority.WORKING_MATERIAL
+    assert suggestion.rule is AuthorityRule.INSPIRE_OTHER
+    assert second.version == CandidateVersion(
+        VersionKind.JOURNAL_PUBLICATION, "doi:10.5506/aphyspolb.55.1-a1"
+    )
+    published = suggest_authority(second)
+    assert published.authority is SourceAuthority.PUBLISHED
+    assert "10.5506/aphyspolb.55.1-a1" in published.basis
+    assert "10.48550" not in published.basis
+
+
+def test_internal_atlas_com_numbers_are_related_and_never_the_version() -> None:
+    """Record 2648001 style: the public ATLAS-CONF number must label the version."""
+    record = hit(
+        9999901,
+        report_numbers=[{"value": "ATLAS-CONF-2023-012"}, {"value": "ATLAS-COM-CONF-2023-020"}],
+    )
+    old_style = hit(
+        9999902,
+        report_numbers=[{"value": "ATL-PHYS-PUB-2011-001"}, {"value": "ATL-COM-PHYS-2011-818"}],
+    )
+    outcome = run(inspire(transport(search_doc([record, old_style]))).search(QUERY))
+    assert isinstance(outcome, SearchResult)
+    first, second = outcome.candidates
+    assert pid_texts(first, PidRole.RELATED) == {"cds_report:ATLAS-COM-CONF-2023-020"}
+    assert first.version == CandidateVersion(
+        VersionKind.REPORT_NUMBER, "report:ATLAS-CONF-2023-012"
+    )
+    assert pid_texts(second, PidRole.RELATED) == {"cds_report:ATL-COM-PHYS-2011-818"}
+    assert second.version.label == "report:ATL-PHYS-PUB-2011-001"
 
 
 def test_imprint_date_wins_and_arxiv_abstract_is_preferred() -> None:

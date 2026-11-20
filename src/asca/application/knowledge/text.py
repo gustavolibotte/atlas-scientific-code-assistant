@@ -50,7 +50,7 @@ STOPWORDS: Final = frozenset(
     }
 )
 ELLIPSIS: Final = "…"
-_TERM_RE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,63}")
+_TERM_RE = re.compile(r"[^\W_][\w.+-]{0,63}")
 _SPACES_RE = re.compile(r" {2,}")
 _BLANK_LINES_RE = re.compile(r"\n{4,}")
 
@@ -130,9 +130,15 @@ def terminal_safe(value: str) -> str:
 
 
 def query_terms(text: str, max_terms: int = 12) -> tuple[str, ...]:
-    """Lowercase search terms without stopwords, de-duplicated in order."""
+    """Lowercase search terms without stopwords, de-duplicated in order.
+
+    A term starts with a letter or digit of any script and may continue with letters, digits,
+    ``_``, ``.``, ``+`` and ``-`` (``p_t``, ``e+e-``, ``física``). A trailing ``.`` is sentence
+    punctuation and is dropped, so ``calorimeter.`` still matches ``calorimeter``.
+    """
     seen: dict[str, None] = {}
-    for term in _TERM_RE.findall(text.casefold()):
+    for found in _TERM_RE.findall(text.casefold()):
+        term = found.rstrip(".")
         if len(term) >= 2 and term not in STOPWORDS:
             seen.setdefault(term, None)
     return tuple(seen)[:max_terms]

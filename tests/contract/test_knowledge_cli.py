@@ -3,11 +3,15 @@ with replayed fixtures (never the network)."""
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
 import runpy
+import socket
 import sys
+import threading
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -614,6 +618,47 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     with pytest.raises(SystemExit) as stop:
         runpy.run_module("asca.infrastructure.knowledge", run_name="__main__")
     assert stop.value.code == 0
+
+
+def test_a_stalled_name_lookup_does_not_delay_the_cli_past_the_provider_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``asyncio.run`` would wait for the abandoned lookup thread before returning."""
+    release = threading.Event()
+
+    def stalled(*args: object, **kwargs: object) -> list[object]:
+        release.wait(3.0)
+        return []
+
+    monkeypatch.setattr(socket, "getaddrinfo", stalled)
+
+    async def lookup_with_a_timeout() -> str:
+        loop = asyncio.get_running_loop()
+        try:
+            await asyncio.wait_for(loop.getaddrinfo("example.org", 443), 0.2)
+        except TimeoutError:
+            return "timeout"
+        return "answered"  # pragma: no cover - the lookup never answers in time
+
+    started = time.monotonic()
+    try:
+        assert cli._run_async(lookup_with_a_timeout()) == "timeout"
+        assert time.monotonic() - started < 1.5
+    finally:
+        release.set()
+
+
+def test_the_daemon_executor_returns_results_and_exceptions() -> None:
+    def boom() -> None:
+        raise RuntimeError("worker failed")
+
+    async def work() -> int:
+        value = await asyncio.to_thread(lambda: 7)
+        with pytest.raises(RuntimeError, match="worker failed"):
+            await asyncio.to_thread(boom)
+        return value
+
+    assert cli._run_async(work()) == 7
 
 
 def test_live_note_only_when_a_provider_was_skipped_for_it() -> None:

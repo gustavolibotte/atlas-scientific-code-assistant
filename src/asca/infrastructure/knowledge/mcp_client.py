@@ -362,7 +362,12 @@ class McpKnowledgeProvider:
         """Discovery only (the same session setup as search, with no tool call)."""
 
         async def operation(session: _Session) -> tuple[str, ...]:
-            names = {name for name in session.tools if _TOOL_NAME_RE.fullmatch(name)}
+            # A server may list a tool named after the bearer token it was sent.
+            names = {
+                name
+                for name in session.tools
+                if _TOOL_NAME_RE.fullmatch(name) and redact_echoes(name, session.secret)[1] == 0
+            }
             return tuple(sorted(names))
 
         outcome = await self._run(operation)

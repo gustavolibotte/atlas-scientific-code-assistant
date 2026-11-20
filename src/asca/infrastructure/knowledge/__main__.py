@@ -14,13 +14,15 @@ AVAILABLE or NOT_PROBED, else 3; ``providers`` 0; 2 for a usage or configuration
 
 import argparse
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
 import sys
-from collections.abc import Callable, Iterable, Mapping, Sequence
+import threading
+from collections.abc import Callable, Coroutine, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Final, NoReturn, Protocol, TextIO
+from typing import Any, Final, NoReturn, Protocol, TextIO, TypeVar
 
 from asca.application.knowledge.federation import (
     AssessedCandidate,
@@ -59,6 +61,7 @@ from asca.infrastructure.knowledge.settings import (
     McpTransport,
 )
 
+_T = TypeVar("_T")
 PROG: Final = "asca-knowledge"
 SEARCH_FORMAT: Final = "asca-knowledge-search/1"
 FETCH_FORMAT: Final = "asca-knowledge-fetch/1"
@@ -551,6 +554,45 @@ def _live_note(errors: Iterable[ProviderError | None], err: TextIO) -> None:
         err.write(LIVE_NOTE + "\n")
 
 
+class _DaemonThreadExecutor(concurrent.futures.ThreadPoolExecutor):
+    """Runs every job in its own daemon thread (a ``ThreadPoolExecutor`` for the loop's API).
+
+    ``asyncio.run`` waits for the default executor on exit, so a name lookup or file read
+    that outlives its provider timeout would hold the CLI back until it finishes. Daemon
+    threads are never joined: the report is written and the process exits on time.
+    """
+
+    def submit(
+        self, fn: Callable[..., _T], /, *args: Any, **kwargs: Any
+    ) -> "concurrent.futures.Future[_T]":
+        future: concurrent.futures.Future[_T] = concurrent.futures.Future()
+
+        def work() -> None:
+            if not future.set_running_or_notify_cancel():
+                return  # pragma: no cover - the loop cancels only before the job starts
+            try:
+                result = fn(*args, **kwargs)
+            except BaseException as exc:
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+
+        threading.Thread(target=work, name="asca-knowledge-worker", daemon=True).start()
+        return future
+
+
+def _new_loop() -> asyncio.AbstractEventLoop:
+    loop = asyncio.new_event_loop()
+    loop.set_default_executor(_DaemonThreadExecutor())
+    return loop
+
+
+def _run_async(coroutine: Coroutine[Any, Any, _T]) -> _T:
+    """``asyncio.run`` with a default executor that never delays the exit."""
+    with asyncio.Runner(loop_factory=_new_loop) as runner:
+        return runner.run(coroutine)
+
+
 def _run_search(
     args: argparse.Namespace, federation: FederationService, out: TextIO, err: TextIO
 ) -> int:
@@ -559,7 +601,7 @@ def _run_search(
     except ValueError:
         raise _UsageError("invalid query") from None
     only = _only(args.providers, federation)
-    result = asyncio.run(federation.search(query, only=only))
+    result = _run_async(federation.search(query, only=only))
     _live_note((report.error for report in result.reports), err)
     if args.format == "text":
         out.write(search_text(result, timings=args.timings))
@@ -575,7 +617,7 @@ def _run_fetch(
         ref = CandidateRef(args.provider_id, args.native_id)
     except ValueError:
         raise _UsageError("invalid provider id or native id") from None
-    outcome = asyncio.run(federation.fetch(ref))
+    outcome = _run_async(federation.fetch(ref))
     _live_note([outcome if isinstance(outcome, ProviderError) else None], err)
     if args.format == "text":
         out.write(fetch_text(ref, outcome, print_text=args.print_text))
@@ -587,7 +629,7 @@ def _run_fetch(
 def _run_health(
     args: argparse.Namespace, federation: FederationService, out: TextIO, err: TextIO
 ) -> int:
-    results = asyncio.run(federation.health(deep=args.deep))
+    results = _run_async(federation.health(deep=args.deep))
     _live_note((item.error for item in results), err)
     if args.format == "text":
         out.write(health_text(results))

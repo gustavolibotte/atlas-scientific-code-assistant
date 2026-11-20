@@ -625,7 +625,6 @@
       "identity_pids": [
         "doi:10.22323/1.398.0752",
         "inspire:2013724",
-        "cds_report:ATL-COM-LARG-2021-029",
         "cds_report:ATL-LARG-PROC-2021-008"
       ],
       "key": "doi:10.22323/1.398.0752",
@@ -678,7 +677,7 @@
             {
               "origin": "curated_link",
               "pid": "cds_report:ATL-COM-LARG-2021-029",
-              "role": "identity"
+              "role": "related"
             },
             {
               "origin": "curated_link",

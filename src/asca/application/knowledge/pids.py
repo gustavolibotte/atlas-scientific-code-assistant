@@ -30,7 +30,11 @@ SCHEME_ORDER: Final = (
     PidScheme.URL,
 )
 HEPDATA_DOI_PREFIX: Final = "10.17182/hepdata."
+ARXIV_DOI_PREFIX: Final = "10.48550/arxiv."
+"""DataCite DOIs arXiv mints for every preprint: not a publication DOI (lower-cased)."""
 IDENTITY_REPORT_PREFIXES: Final = ("ATLAS-", "ATL-", "CERN-")
+INTERNAL_REPORT_RE: Final = re.compile(r"(ATLAS|ATL)-COM-")
+"""ATLAS-COM-* and ATL-COM-* are internal collaboration draft numbers, never a public identity."""
 
 _DOI_PREFIXES = (
     "doi:",
@@ -118,7 +122,9 @@ def normalize_report_number(raw: str) -> tuple[PersistentIdentifier, PidRole] | 
     pid = _make(PidScheme.CDS_REPORT, raw.strip().upper())
     if pid is None:
         return None
-    identity = pid.value.startswith(IDENTITY_REPORT_PREFIXES)
+    identity = pid.value.startswith(IDENTITY_REPORT_PREFIXES) and not INTERNAL_REPORT_RE.match(
+        pid.value
+    )
     return pid, PidRole.IDENTITY if identity else PidRole.RELATED
 
 

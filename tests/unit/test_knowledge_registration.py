@@ -459,6 +459,207 @@ def test_registration_choice_and_plan_validation() -> None:
         replace(good, idempotent_version_id=good.version.version_label)  # type: ignore[arg-type]
 
 
+# ---------------------------------------------------------------------- review regressions
+
+
+def hepdata_dataset() -> KnowledgeCandidate:
+    """A HEPData record: its concept DOI is the identity, its paper is only RELATED."""
+    return make_candidate(
+        ProviderKind.HEPDATA,
+        "ins1",
+        pids=[
+            identity("doi:10.17182/hepdata.1", PidOrigin.NATIVE),
+            related("doi:10.1007/jhep01(2022)001"),
+            related("inspire:1"),
+        ],
+    )
+
+
+def mcp_asserting(doi: str, *, access: AccessClass = AccessClass.INTERNAL) -> KnowledgeCandidate:
+    """An MCP item whose metadata asserts a DOI (always RELATED, provider asserted)."""
+    return make_candidate(
+        ProviderKind.MCP,
+        "doc-1",
+        access_class=access,
+        declared_authority=D,
+        pids=[
+            related(doi, PidOrigin.PROVIDER_ASSERTED),
+            related("url:https://example.org/asca-test/doc", PidOrigin.PROVIDER_ASSERTED),
+        ],
+    )
+
+
+def test_a_related_doi_is_never_the_primary_pid() -> None:
+    # The paper DOI sorts before the HEPData prefix, so a role-free "any DOI" step took it.
+    found = primary_pid(hepdata_dataset())
+    assert found == PersistentIdentifier(PidScheme.DOI, "10.17182/hepdata.1")
+    related_only = make_candidate(
+        ProviderKind.MCP,
+        pids=[
+            related("doi:10.5555/asca-test.1", PidOrigin.PROVIDER_ASSERTED),
+            related("arxiv:2109.05124", PidOrigin.PROVIDER_ASSERTED),
+            related("inspire:1", PidOrigin.PROVIDER_ASSERTED),
+        ],
+    )
+    assert primary_pid(related_only) is None
+    assert primary_pid(mcp_asserting(DOI)) == PersistentIdentifier(
+        PidScheme.URL, "https://example.org/asca-test/doc"
+    )
+
+
+def test_a_hepdata_dataset_is_not_filed_under_its_paper_in_either_order() -> None:
+    for paper_first in (True, False):
+        provenance = service()
+        pid = project(provenance)
+        registrar = KnowledgeRegistrationService(provenance)
+        paper = make_candidate(
+            ProviderKind.INSPIRE,
+            "1",
+            refereed=True,
+            pids=[identity("inspire:1", PidOrigin.NATIVE), identity("doi:10.1007/jhep01(2022)001")],
+        )
+        dataset = hepdata_dataset()
+        order = [(paper, A), (dataset, D)] if paper_first else [(dataset, D), (paper, A)]
+        results = [
+            register(registrar, pid, candidate, RegistrationChoice(a)) for candidate, a in order
+        ]
+        assert results[0].source_id != results[1].source_id
+        assert results[1].created_source
+        sources = {source.persistent_id.value for source in provenance.load(pid).sources}
+        assert sources == {"10.17182/hepdata.1", "10.1007/jhep01(2022)001"}
+
+
+def test_an_mcp_asserted_doi_never_attaches_an_internal_version_to_a_public_source() -> None:
+    provenance = service()
+    pid = project(provenance)
+    registrar = KnowledgeRegistrationService(provenance)
+    public = register(registrar, pid, inspire_journal(), RegistrationChoice(A))
+    internal = register(registrar, pid, mcp_asserting(DOI), RegistrationChoice(D))
+    assert internal.created_source
+    assert internal.source_id != public.source_id
+    graph = provenance.load(pid)
+    by_source = {source.id: source for source in graph.sources}
+    assert by_source[internal.source_id].persistent_id == PersistentIdentifier(
+        PidScheme.URL, "https://example.org/asca-test/doc"
+    )
+    assert [v.access_class for v in graph.versions if v.source_id == public.source_id] == [
+        AccessClass.PUBLIC
+    ]
+    # The reverse order: the internal item must not occupy the public work's DOI.
+    other = service()
+    other_pid = project(other)
+    other_registrar = KnowledgeRegistrationService(other)
+    first = register(other_registrar, other_pid, mcp_asserting(DOI), RegistrationChoice(D))
+    second = register(other_registrar, other_pid, inspire_journal(), RegistrationChoice(A))
+    assert second.created_source and second.source_id != first.source_id
+
+
+def test_an_arxiv_preprint_without_a_doi_joins_the_inspire_source_with_its_group() -> None:
+    preprint = make_candidate(
+        ProviderKind.ARXIV, "2109.05124v2", pids=[identity(ARXIV, PidOrigin.NATIVE)]
+    )
+    group = inspire().identity_pids
+    provenance = service()
+    pid = project(provenance)
+    registrar = KnowledgeRegistrationService(provenance)
+    first = register(registrar, pid, inspire_journal(), RegistrationChoice(A))
+    joined = registrar.register(
+        pid,
+        assess(preprint),
+        descriptor_for(preprint),
+        make_document(preprint),
+        RegistrationChoice(D),
+        group,
+    )
+    assert joined.source_id == first.source_id and not joined.created_source
+    again = registrar.register(
+        pid,
+        assess(inspire_journal()),
+        descriptor_for(inspire_journal()),
+        make_document(inspire_journal(), TEXT),
+        RegistrationChoice(A),
+        group,
+    )
+    assert again.version_id == first.version_id and not again.created_version
+    graph = provenance.load(pid)
+    assert len(graph.sources) == 1 and len(graph.versions) == 2
+    # Registration order does not matter: the same two records, preprint first.
+    other = service()
+    other_pid = project(other)
+    other_registrar = KnowledgeRegistrationService(other)
+    other_registrar.register(
+        other_pid,
+        assess(preprint),
+        descriptor_for(preprint),
+        None,
+        RegistrationChoice(D),
+        group,
+    )
+    reverse = register(other_registrar, other_pid, inspire_journal(), RegistrationChoice(A))
+    assert not reverse.created_source
+    assert len(other.load(other_pid).sources) == 1
+
+
+# ---------------------------------------------------------------------- rule isolation
+
+
+def test_published_choice_needs_a_published_pid_even_for_public_access() -> None:
+    provenance = service()
+    pid = project(provenance)
+    public_mcp = make_candidate(
+        ProviderKind.MCP,
+        "doc-1",
+        access_class=AccessClass.PUBLIC,
+        declared_authority=D,
+        pids=[related("url:https://example.org/asca-test/doc", PidOrigin.PROVIDER_ASSERTED)],
+    )
+    refused(
+        RefusalCode.PUBLISHED_NOT_ALLOWED,
+        lambda: plan(
+            provenance, pid, public_mcp, RegistrationChoice(A, basis_note="Looks public.")
+        ),
+    )
+
+
+def test_approved_internal_needs_a_basis_even_below_a_published_suggestion() -> None:
+    provenance = service()
+    pid = project(provenance)
+    refereed = inspire()
+    assert suggest_authority(refereed).authority is A
+    refused(
+        RefusalCode.BASIS_REQUIRED, lambda: plan(provenance, pid, refereed, RegistrationChoice(B))
+    )
+
+
+def test_a_version_label_held_by_another_source_is_not_a_conflict() -> None:
+    provenance = service()
+    pid = project(provenance)
+    registrar = KnowledgeRegistrationService(provenance)
+    register(registrar, pid, inspire_journal(), RegistrationChoice(A))
+    by_arxiv = provenance.register_source(
+        pid, SourceDraft("By arXiv", PersistentIdentifier(PidScheme.ARXIV, ARXIV[6:]))
+    )
+    preprint = make_candidate(
+        ProviderKind.ARXIV,
+        "2109.05124v2",
+        pids=[identity(ARXIV, PidOrigin.NATIVE)],
+        version=CandidateVersion(VersionKind.JOURNAL_PUBLICATION, f"doi:{DOI[4:]}"),
+    )
+    result = register(registrar, pid, preprint, RegistrationChoice(D), text="Other text.\n")
+    assert result.source_id == by_arxiv and result.created_version and not result.created_source
+
+
+def test_primary_pid_prefers_inspire_over_cds_and_a_non_hepdata_doi_over_everything() -> None:
+    both = make_candidate(pids=[identity("inspire:5"), identity("cds_report:ATLAS-CONF-2023-001")])
+    assert primary_pid(both) == PersistentIdentifier(PidScheme.INSPIRE, "5")
+    mixed = make_candidate(
+        ProviderKind.HEPDATA,
+        "ins1",
+        pids=[identity("doi:10.17182/hepdata.1"), identity(ARXIV)],
+    )
+    assert primary_pid(mixed) == PersistentIdentifier(PidScheme.ARXIV, ARXIV[6:])
+
+
 # ---------------------------------------------------------------------- provenance edits
 
 

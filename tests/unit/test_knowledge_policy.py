@@ -59,8 +59,9 @@ def test_unrefereed_inspire_record_is_working_material(refereed: bool | None) ->
 def test_inspire_published_needs_a_curated_non_hepdata_doi() -> None:
     no_doi = _inspire(True, "arxiv:2109.05124")
     hepdata = _inspire(True, "doi:10.17182/hepdata.1.v1")
+    arxiv_datacite = _inspire(True, "doi:10.48550/arxiv.2410.06573")
     asserted = _inspire(True, JOURNAL_DOI, origin=PidOrigin.PROVIDER_ASSERTED)
-    for candidate in (no_doi, hepdata, asserted):
+    for candidate in (no_doi, hepdata, arxiv_datacite, asserted):
         assert suggest_authority(candidate).authority is D
 
 

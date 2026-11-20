@@ -191,6 +191,31 @@ def test_writable_or_non_executable_command_is_refused(tmp_path: Path, mode: int
     assert invalid_details(stdio_config(str(command))) == ("mcp.srv.command: unsafe_command",)
 
 
+def owned_by_someone_else(monkeypatch: pytest.MonkeyPatch, target: Path) -> None:
+    """Make ``os.stat`` report ``target`` as owned by a uid that is neither ours nor root."""
+    real_stat = os.stat
+    resolved = os.path.realpath(target)
+
+    def stat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        result = real_stat(path, *args, **kwargs)  # type: ignore[call-overload]
+        if isinstance(path, str | os.PathLike) and os.path.realpath(path) == resolved:
+            fields = list(result)
+            fields[4] = result.st_uid + 4242
+            return os.stat_result(fields)
+        return result  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(os, "stat", stat)
+
+
+def test_command_owned_by_another_user_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    command = executable(tmp_path / "server")
+    assert check_command(str(command), {}, "c") == os.path.realpath(command)
+    owned_by_someone_else(monkeypatch, command)
+    assert invalid_details(stdio_config(str(command))) == ("mcp.srv.command: unsafe_command",)
+
+
 def test_missing_or_directory_command_is_refused(tmp_path: Path) -> None:
     for command in (tmp_path / "absent", tmp_path):
         assert invalid_details(stdio_config(str(command))) == ("mcp.srv.command: unsafe_command",)

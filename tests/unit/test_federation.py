@@ -4,7 +4,7 @@ import asyncio
 import logging
 import random
 import time
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 
 import pytest
 from hypothesis import given, settings
@@ -634,6 +634,77 @@ def test_fetch_errors_and_contract_violations() -> None:
     assert asyncio.run(_service(raising).fetch(target.ref)) == ProviderError(
         ProviderErrorKind.INTERNAL_ERROR, "unexpected_exception"
     )
+
+
+def test_fetch_never_lowers_access_or_returns_non_public_data_from_a_public_provider() -> None:
+    internal_ref_candidate = make_candidate(
+        ProviderKind.MCP, "doc-1", access_class=AccessClass.INTERNAL
+    )
+    lowered = replace(
+        internal_ref_candidate, access_class=AccessClass.PUBLIC, access_conditions=None
+    )
+    internal_mcp = FakeProvider(
+        make_descriptor(ProviderKind.MCP, access_class=AccessClass.INTERNAL),
+        fetch_outcome=fetch_result(lowered),
+    )
+    violation = ProviderError(ProviderErrorKind.MALFORMED_RESPONSE, "contract_violation")
+    assert asyncio.run(_service(internal_mcp).fetch(lowered.ref)) == violation
+    target = arxiv("2109.05124v2")
+    non_public = make_candidate(
+        ProviderKind.ARXIV, "2109.05124v2", access_class=AccessClass.INTERNAL
+    )
+    public_arxiv = FakeProvider(
+        make_descriptor(ProviderKind.ARXIV), fetch_outcome=fetch_result(non_public)
+    )
+    assert asyncio.run(_service(public_arxiv).fetch(target.ref)) == violation
+    honest = FakeProvider(
+        make_descriptor(ProviderKind.MCP, access_class=AccessClass.INTERNAL),
+        fetch_outcome=fetch_result(internal_ref_candidate),
+    )
+    assert not isinstance(
+        asyncio.run(_service(honest).fetch(internal_ref_candidate.ref)), ProviderError
+    )
+
+
+@dataclass
+class _ConcurrencyProvider(FakeProvider):
+    """Records how many searches overlap."""
+
+    tracker: dict[str, int] = field(default_factory=dict)
+
+    async def search(self, query: KnowledgeQuery) -> SearchResult:
+        self.tracker["active"] = self.tracker.get("active", 0) + 1
+        self.tracker["max"] = max(self.tracker.get("max", 0), self.tracker["active"])
+        await asyncio.sleep(0.05)
+        self.tracker["active"] -= 1
+        return SearchResult((), 0, 0)
+
+
+@pytest.mark.parametrize("max_parallel", [1, 3])
+def test_max_parallel_bounds_the_number_of_concurrent_providers(max_parallel: int) -> None:
+    tracker: dict[str, int] = {}
+    providers = [
+        _ConcurrencyProvider(make_descriptor(ProviderKind.MCP, f"mcp:p{index}"), tracker=tracker)
+        for index in range(5)
+    ]
+    result = asyncio.run(_service(*providers, max_parallel=max_parallel).search(QUERY))
+    assert [report.status for report in result.reports] == [ProviderStatus.OK] * 5
+    assert tracker["max"] == max_parallel
+
+
+def test_time_queued_behind_max_parallel_counts_against_the_deadline() -> None:
+    providers = [
+        SleepingProvider(make_descriptor(ProviderKind.MCP, f"mcp:p{index}", timeout_s=1.0))
+        for index in range(3)
+    ]
+    service = _service(*providers, grace_s=0.0, max_parallel=1)
+    started = time.monotonic()
+    result = asyncio.run(service.search(QUERY))
+    # One 1 s deadline for everyone, not three of them in sequence (3 s).
+    assert time.monotonic() - started < 2.0
+    assert {report.error for report in result.reports} == {
+        ProviderError(ProviderErrorKind.TIMEOUT, "federation_deadline")
+    }
 
 
 def test_health_under_live_false_and_guarded_health() -> None:

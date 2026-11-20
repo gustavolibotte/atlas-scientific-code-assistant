@@ -13,8 +13,16 @@ import pickle
 from pathlib import Path
 
 import pytest
+from fake_mcp_server import tool_definitions
 from mcp_http_server import LoopbackMcpServer
-from mcp_testing import INTERNAL_QUERY, TOKEN, TOKEN_ENV, http_provider
+from mcp_testing import (
+    INTERNAL_QUERY,
+    TOKEN,
+    TOKEN_ENV,
+    http_provider,
+    http_settings,
+    in_process_provider,
+)
 
 from asca.application.knowledge.models import (
     CandidateRef,
@@ -190,6 +198,22 @@ def test_mcp_echoed_token_is_redacted() -> None:
     assert fetched.document.text == f"Token {REDACTED} and {REDACTED}."
     assert fetched.document.redactions >= 2
     assert TOKEN not in repr(searched) + repr(fetched)
+
+
+def test_mcp_health_drops_a_tool_name_that_echoes_the_token() -> None:
+    echoing = {
+        "name": TOKEN,
+        "description": None,
+        "input_schema": {"type": "object", "properties": {}},
+    }
+    provider = in_process_provider(
+        settings=http_settings("https://chatlas.example/mcp"),
+        environ={TOKEN_ENV: TOKEN},
+        tools=[*tool_definitions("normal"), echoing],
+    )
+    health = asyncio.run(provider.health(deep=True))
+    assert health.tool_names == ("delete_all", "fetch", "search")
+    assert TOKEN not in repr(health)
 
 
 def test_mcp_bearer_is_never_sent_to_another_origin() -> None:

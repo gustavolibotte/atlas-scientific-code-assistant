@@ -5,6 +5,7 @@ apply at commit time. The authority is always an explicit human choice; choosing
 policy suggestion requires a written basis, and nothing is ever auto-promoted.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, cast
@@ -123,21 +124,26 @@ class RegistrationResult:
 
 
 def primary_pid(candidate: KnowledgeCandidate) -> PersistentIdentifier | None:
-    """The first match in the registration order among the candidate's pids."""
+    """The first match in the registration order among the candidate's pids.
+
+    Only an IDENTITY pid (or the candidate's own local-document or URL pid) can be primary:
+    a RELATED DOI, arXiv id or INSPIRE id is an assertion about another work (a HEPData
+    dataset's paper, an MCP item's metadata) and must never decide the Source.
+    """
     identity, related = PidRole.IDENTITY, PidRole.RELATED
-    order: tuple[tuple[PidRole | None, PidScheme, bool | None], ...] = (
+    order: tuple[tuple[PidRole, PidScheme, bool | None], ...] = (
         (identity, PidScheme.DOI, False),
         (identity, PidScheme.ARXIV, None),
         (identity, PidScheme.INSPIRE, None),
         (identity, PidScheme.CDS_REPORT, None),
-        (None, PidScheme.DOI, None),
+        (identity, PidScheme.DOI, True),
         (related, PidScheme.LOCAL_DOCUMENT, None),
         (related, PidScheme.URL, None),
     )
     for role, scheme, hepdata in order:
         for item in candidate.pids:
             if (
-                (role is None or item.role is role)
+                item.role is role
                 and item.pid.scheme is scheme
                 and (hepdata is None or item.pid.value.startswith(HEPDATA_DOI_PREFIX) == hepdata)
             ):
@@ -176,8 +182,15 @@ def plan_registration(
     descriptor: ProviderDescriptor,
     document: FetchedDocument | None,
     choice: RegistrationChoice,
+    group_identity_pids: Sequence[PersistentIdentifier] = (),
 ) -> RegistrationPlan:
-    """Plan one registration; raise ``RegistrationRefused``; never write anything."""
+    """Plan one registration; raise ``RegistrationRefused``; never write anything.
+
+    A Source stores one persistent identifier, so an existing Source is found through the
+    candidate's own pids. ``group_identity_pids`` (the identity pids of its evidence group,
+    ``EvidenceGroup.identity_pids``) also match, so an arXiv preprint without a DOI joins the
+    Source an INSPIRE record created under the DOI, whatever the registration order.
+    """
     candidate = assessed.candidate
     suggestion = assessed.suggestion
     if graph.project.is_synthetic:
@@ -216,7 +229,7 @@ def plan_registration(
     if primary is None:
         raise RegistrationRefused(RefusalCode.NO_PERSISTENT_ID)
 
-    matches = {primary, *candidate.identity_pids}
+    matches = {primary, *candidate.identity_pids, *group_identity_pids}
     existing = [source for source in graph.sources if source.persistent_id in matches]
     if len(existing) > 1:
         raise RegistrationRefused(RefusalCode.AMBIGUOUS_EXISTING_SOURCES)
@@ -262,10 +275,11 @@ class KnowledgeRegistrationService:
         descriptor: ProviderDescriptor,
         document: FetchedDocument | None,
         choice: RegistrationChoice,
+        group_identity_pids: Sequence[PersistentIdentifier] = (),
     ) -> RegistrationResult:
         """Plan, then write the source and version in one atomic commit (or nothing)."""
         graph = self._provenance.load(project_id)
-        plan = plan_registration(graph, assessed, descriptor, document, choice)
+        plan = plan_registration(graph, assessed, descriptor, document, choice, group_identity_pids)
         target: SourceDraft | SourceId
         if plan.reuse_source_id is not None:
             if plan.idempotent_version_id is not None:

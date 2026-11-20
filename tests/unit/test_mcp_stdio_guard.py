@@ -189,3 +189,111 @@ def test_guard_process_enforces_the_line_limit() -> None:
     )
     assert result.returncode == guard.EXIT_OUTPUT_LIMIT
     assert result.stdout == b""
+
+
+def _running(pid: int) -> bool:
+    """Alive and not a zombie (an orphaned zombie is not reaped on every CI host)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return True
+    return stat_text.rsplit(")", 1)[1].split()[0] != "Z"
+
+
+def _wait_for_pid(path: Path) -> int:
+    deadline = time.monotonic() + 20
+    while not path.exists() or not path.read_text(encoding="utf-8"):
+        assert time.monotonic() < deadline, "the process did not start"
+        time.sleep(0.05)
+    return int(path.read_text(encoding="utf-8"))
+
+
+def _gone(pid: int, wait_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + wait_s
+    while _running(pid):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def _spawn_guard(code: str) -> "subprocess.Popen[bytes]":
+    return subprocess.Popen(
+        [sys.executable, "-I", "-m", guard.__name__, *ARGS, sys.executable, "-c", code],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def test_guard_exits_on_sigterm_when_the_child_closed_stdout_but_keeps_running(
+    tmp_path: Path,
+) -> None:
+    """The guard waits in ``child.wait()``; the handler must not deadlock on the same lock."""
+    pid_file = tmp_path / "child.pid"
+    code = (
+        "import os, time\n"
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+        "os.close(1)\n"
+        "time.sleep(60)\n"
+    )
+    process = _spawn_guard(code)
+    child_pid = 0
+    try:
+        child_pid = _wait_for_pid(pid_file)
+        time.sleep(0.5)  # let the guard reach EOF and block in wait()
+        process.send_signal(signal.SIGTERM)
+        assert process.wait(timeout=8) == guard.EXIT_SIGTERM
+        assert _gone(child_pid)
+    finally:
+        process.kill()
+        process.wait()
+        if child_pid and _running(child_pid):
+            os.kill(child_pid, signal.SIGKILL)
+
+
+def _server_with_a_helper(helper_file: Path, ending: str) -> str:
+    """A server that starts a long-lived background helper, then runs ``ending``."""
+    helper = (
+        f"import os, time; open({str(helper_file)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
+    )
+    return (
+        "import os, subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {helper!r}], stdout=subprocess.DEVNULL)\n"
+        f"while not (os.path.exists({str(helper_file)!r}) and open({str(helper_file)!r}).read()):\n"
+        "    time.sleep(0.02)\n"
+        f"{ending}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("ending", "expected"),
+    [
+        (
+            "sys.stdout.write('x' * 5000); sys.stdout.flush(); time.sleep(60)",
+            guard.EXIT_OUTPUT_LIMIT,
+        ),
+        ("sys.exit(0)", 0),
+    ],
+    ids=["output-limit", "child-exit"],
+)
+def test_guard_kills_the_descendants_of_the_server(
+    tmp_path: Path, ending: str, expected: int
+) -> None:
+    helper_file = tmp_path / "helper.pid"
+    code = _server_with_a_helper(helper_file, ending)
+    process = _spawn_guard(code)
+    helper_pid = 0
+    try:
+        helper_pid = _wait_for_pid(helper_file)
+        assert process.wait(timeout=20) == expected
+        assert _gone(helper_pid), "a descendant of the server outlived the guard"
+    finally:
+        process.kill()
+        process.wait()
+        if helper_pid and _running(helper_pid):
+            os.kill(helper_pid, signal.SIGKILL)

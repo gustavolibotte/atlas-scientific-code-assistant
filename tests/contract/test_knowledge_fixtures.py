@@ -122,6 +122,11 @@ def test_every_fixture_is_well_formed_and_licence_clean(path: Path) -> None:
     assert "set-cookie" not in dict(fixture.headers)
 
 
+def test_the_documented_recorder_limits_are_64_and_256_kib() -> None:
+    assert BODY_MAX_BYTES == 64 * 1024 == 65_536
+    assert TOTAL_MAX_BYTES == 256 * 1024 == 262_144
+
+
 def test_the_fixture_tree_stays_small() -> None:
     total = sum(path.stat().st_size for path in FIXTURES.rglob("*") if path.is_file())
     assert total <= TOTAL_MAX_BYTES
@@ -293,7 +298,7 @@ def document(body_text: str = "{}", headers: dict[str, str] | None = None) -> di
 @pytest.mark.parametrize(
     ("body", "problem"),
     [
-        ("x" * (BODY_MAX_BYTES + 1), "body larger than 64 KiB"),
+        ("x" * (64 * 1024 + 1), "body larger than 64 KiB"),
         ('{"h": "Authorization: x"}', "credential-like pattern"),
         ('{"h": "Bearer abcdef"}', "credential-like pattern"),
         ('{"h": "set-cookie"}', "credential-like pattern"),
@@ -369,7 +374,7 @@ def test_write_documents_checks_everything_before_writing(tmp_path: Path) -> Non
 
 def test_write_documents_refuses_a_tree_over_256_kib(tmp_path: Path) -> None:
     (tmp_path / "local").mkdir()
-    (tmp_path / "local" / "big.bin").write_bytes(b"x" * (TOTAL_MAX_BYTES - 100))
+    (tmp_path / "local" / "big.bin").write_bytes(b"x" * (256 * 1024 - 100))
     with pytest.raises(RecordingRefused, match="256 KiB"):
         write_documents(tmp_path, [(document("{}"), Sanitized("", (), ()))], force=False)
     assert recording._tree_size(tmp_path / "missing", set()) == 0

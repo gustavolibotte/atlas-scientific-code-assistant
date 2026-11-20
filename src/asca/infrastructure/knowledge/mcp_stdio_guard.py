@@ -10,6 +10,12 @@ without a shell, and relays the child's stdout to its own stdout while counting 
 A line longer than ``--max-line`` bytes, or more than ``--max-total`` bytes in total,
 kills the child and exits 70. The child's stdin is inherited and its stderr discarded.
 
+The child leads its own process group. Whenever the guard stops (an output limit, a broken
+pipe, SIGTERM, or the child's exit) it SIGKILLs that whole group, so a wrapper's helpers and
+background processes do not outlive the server. The SDK's own group signal cannot be relied
+on for this: it is only sent while the guard is still alive. The SIGTERM handler never waits
+on the child with ``Popen.wait`` (not re-entrant); it kills the group, reaps and exits.
+
 This is resource protection, not a sandbox: there is no filesystem or network isolation.
 The SDK buffers stdout lines without a bound; this relay is what bounds them.
 """
@@ -79,9 +85,16 @@ def apply_limits(cpu_s: int, rlimits: Any = None) -> None:
         _limit(rlimits, "RLIMIT_AS", ADDRESS_SPACE)
 
 
-def _stop(child: "subprocess.Popen[bytes]") -> None:
+def _kill_group(child: "subprocess.Popen[bytes]") -> None:
+    """SIGKILL the child and every process in its group; never blocks."""
+    with contextlib.suppress(OSError):
+        os.killpg(child.pid, signal.SIGKILL)
     with contextlib.suppress(OSError):
         child.kill()
+
+
+def _stop(child: "subprocess.Popen[bytes]") -> None:
+    _kill_group(child)
     child.wait()
 
 
@@ -131,7 +144,9 @@ def relay(child: "subprocess.Popen[bytes]", counter: LineCounter) -> int:
     while True:
         chunk = os.read(fd, READ_CHUNK)
         if not chunk:
-            return _exit_code(child.wait())
+            code = _exit_code(child.wait())
+            _kill_group(child)
+            return code
         if not counter.accept(chunk):
             _stop(child)
             return EXIT_OUTPUT_LIMIT
@@ -162,11 +177,15 @@ def main(
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         close_fds=True,
+        start_new_session=True,
     )
 
     def on_sigterm(signum: int, frame: FrameType | None) -> None:  # pragma: no cover
-        # Runs only in the guard process (tested through a subprocess).
-        _stop(child)
+        # Runs only in the guard process (tested through a subprocess). It may interrupt
+        # ``child.wait()`` on this same thread, so it must not wait on the child itself.
+        _kill_group(child)
+        with contextlib.suppress(OSError):
+            os.waitpid(child.pid, 0)  # reaps without the Popen lock held by ``wait``
         os._exit(EXIT_SIGTERM)
 
     signal.signal(signal.SIGTERM, on_sigterm)
