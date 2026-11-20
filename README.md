@@ -69,6 +69,25 @@ The check script never prints secret environment variables and does not contact 
 If dependencies are not installed yet, run `bash scripts/bootstrap.sh` before the full check.
 Failed or skipped checks must not be interpreted as successful checks.
 
+## Search knowledge sources (M3)
+
+The knowledge CLI searches INSPIRE-HEP, arXiv, HEPData, an optional local library and
+configured MCP servers, and reports every source it could not consult. Nothing is sent
+over the network without `--live`.
+
+```bash
+uv run python -m asca.infrastructure.knowledge providers
+uv run python -m asca.infrastructure.knowledge search \
+    "energy reconstruction liquid argon calorimeter neural network" --live
+uv run python -m asca.infrastructure.knowledge fetch inspire 1920956 --live --format text
+```
+
+Configuration is optional and lives in `~/.config/asca/knowledge.toml` (mode 0600), or
+the path given by `--config` or `ASCA_KNOWLEDGE_CONFIG`; it is never read from the
+working directory. Tokens come only from `ASCA_` environment variables. See
+[ADR 0040](docs/adr/0040-federated-knowledge-layer.md) and the
+[M3 acceptance document](docs/development/m3-acceptance.md).
+
 ## Documentation
 
 - [Roadmap v2](docs/roadmap.md) and [ADR 0037](docs/adr/0037-prioritize-evidence-to-code-vertical-slice.md)

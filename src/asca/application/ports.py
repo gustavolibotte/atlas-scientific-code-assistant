@@ -6,6 +6,14 @@ from datetime import datetime
 from itertools import pairwise
 from typing import Final, Protocol
 
+from asca.application.knowledge.models import (
+    CandidateRef,
+    FetchOutcome,
+    ProviderDescriptor,
+    ProviderHealth,
+    SearchOutcome,
+)
+from asca.application.knowledge.models import KnowledgeQuery as KnowledgeQuery
 from asca.domain.provenance import (
     FileIssueKind,
     FingerprintAlgorithm,
@@ -21,32 +29,23 @@ from asca.domain.provenance import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class KnowledgeQuery:
-    text: str
-    limit: int = 5
-
-    def __post_init__(self) -> None:
-        if not self.text.strip():
-            raise ValueError("Search query cannot be blank")
-        if not 1 <= self.limit <= 100:
-            raise ValueError("Search limit must be between 1 and 100")
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceCandidate:
-    source_id: str
-    title: str
-    excerpt: str
-    locator: str
-
-
 class KnowledgeProvider(Protocol):
-    """Future chATLAS and document adapters must implement this contract."""
+    """A knowledge source adapter (INSPIRE, arXiv, HEPData, local library, MCP server).
 
-    async def search(self, query: KnowledgeQuery) -> list[EvidenceCandidate]: ...
+    Contract: expected failures are returned as ``ProviderError`` and never raised; the
+    adapter applies ``asyncio.timeout(descriptor.timeout_s)`` itself; ``fetch`` takes a
+    ref, never a URL; nothing in a response triggers another request; no returned value
+    carries credentials; queries above ``descriptor.max_query_access`` are refused.
+    """
 
-    async def is_available(self) -> bool: ...
+    @property
+    def descriptor(self) -> ProviderDescriptor: ...
+
+    async def search(self, query: KnowledgeQuery) -> SearchOutcome: ...
+
+    async def fetch(self, ref: CandidateRef) -> FetchOutcome: ...
+
+    async def health(self, *, deep: bool = False) -> ProviderHealth: ...
 
 
 class Clock(Protocol):

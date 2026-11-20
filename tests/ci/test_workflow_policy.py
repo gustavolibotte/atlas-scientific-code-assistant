@@ -86,3 +86,10 @@ def test_legacy_node20_actions_are_not_used() -> None:
     assert "actions/checkout@v4" not in content
     assert "actions/setup-node@v4" not in content
     assert "astral-sh/setup-uv@v6" not in content
+
+
+@pytest.mark.parametrize("name", ["backend.yml", "frontend.yml"])
+def test_live_provider_tests_never_run_in_ci(name: str) -> None:
+    content = workflow(name)
+    assert "ASCA_LIVE" not in content
+    assert re.search(r"-m\s+['\"]?live", content) is None

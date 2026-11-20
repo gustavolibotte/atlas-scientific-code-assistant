@@ -1,0 +1,46 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "inspire",
+  "scenario": "rate_limited_429",
+  "synthetic": true,
+  "recorded_at": "2026-11-14T12:00:00Z",
+  "recorder": "asca-synthetic/1",
+  "metadata_license": "CC0-1.0",
+  "terms_url": "https://inspirehep.net/help/knowledge-base/terms-of-use",
+  "sanitized": [],
+  "request": {
+    "method": "GET",
+    "url": "https://inspirehep.net/api/literature",
+    "params": [
+      [
+        "fields",
+        "control_number,titles.title,first_author.full_name,author_count,collaborations.value,dois,arxiv_eprints.value,report_numbers.value,external_system_identifiers,publication_info.journal_title,publication_info.journal_volume,publication_info.year,publication_info.artid,publication_info.page_start,document_type,refereed,earliest_date,imprints.date,license,abstracts.value,abstracts.source,deleted"
+      ],
+      [
+        "page",
+        "1"
+      ],
+      [
+        "q",
+        "energy reconstruction liquid argon calorimeter neural network"
+      ],
+      [
+        "size",
+        "5"
+      ],
+      [
+        "sort",
+        "bestmatch"
+      ]
+    ]
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json",
+      "retry-after": "99999"
+    },
+    "body_text": "{\"message\":\"Synthetic rate-limit response.\",\"status\":429}",
+    "body_sha256": "9197b73365f3867f57143d93465a102c3331dd70e5aa4611fcd889d3ca2922e5"
+  }
+}

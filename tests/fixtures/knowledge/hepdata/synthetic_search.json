@@ -1,0 +1,43 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "hepdata",
+  "scenario": "synthetic_search",
+  "synthetic": true,
+  "recorded_at": "2026-11-14T12:00:00Z",
+  "recorder": "asca-synthetic/1",
+  "metadata_license": "CC0-1.0",
+  "terms_url": "https://www.hepdata.net/terms",
+  "sanitized": [
+    "synthetic fixture: provisional HEPData search fields (hepdata-cli 0.3.1 and HEPData sources)"
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://www.hepdata.net/search/",
+    "params": [
+      [
+        "format",
+        "json"
+      ],
+      [
+        "page",
+        "1"
+      ],
+      [
+        "q",
+        "energy reconstruction liquid argon calorimeter neural network"
+      ],
+      [
+        "size",
+        "5"
+      ]
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body_text": "{\"facets\":[],\"results\":[{\"arxiv_id\":\"arXiv:2511.99901\",\"collaborations\":[\"Synthetic Collaboration\"],\"data\":[],\"doi\":\"10.5555/asca-test.901\",\"hepdata_doi\":\"10.17182/hepdata.99901.v2\",\"inspire_id\":9999901,\"recid\":99901,\"title\":\"Synthetic HEPData record: liquid argon calorimeter energy response\",\"total_tables\":0,\"version\":2},{\"collaborations\":[],\"data\":[],\"hepdata_doi\":\"10.17182/hepdata.99902.v1\",\"inspire_id\":\"9999902\",\"recid\":99902,\"title\":\"Synthetic HEPData record: neural-network energy reconstruction tables\",\"total_tables\":0,\"version\":1},{\"inspire_id\":9999903,\"recid\":99903,\"title\":\"Synthetic HEPData record without a HEPData DOI\"},{\"hepdata_doi\":\"10.17182/hepdata.99904\",\"inspire_id\":9999904,\"recid\":99904,\"title\":\"Synthetic HEPData record with a version-less HEPData DOI\"}],\"total\":4}",
+    "body_sha256": "f05bc89ee4d5e17e813590e91d690002737a63a8fbd911b981d1407a144ff511"
+  }
+}

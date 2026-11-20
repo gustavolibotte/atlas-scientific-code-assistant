@@ -1,0 +1,44 @@
+{
+  "format": "asca-http-fixture/1",
+  "provider": "hepdata",
+  "scenario": "lar_nn_search_blocked",
+  "synthetic": false,
+  "recorded_at": "2026-11-14T15:33:23Z",
+  "recorder": "asca-recorder/1",
+  "metadata_license": "CC0-1.0",
+  "terms_url": "https://www.hepdata.net/terms",
+  "sanitized": [
+    "challenge body replaced"
+  ],
+  "request": {
+    "method": "GET",
+    "url": "https://www.hepdata.net/search/",
+    "params": [
+      [
+        "format",
+        "json"
+      ],
+      [
+        "page",
+        "1"
+      ],
+      [
+        "q",
+        "energy reconstruction liquid argon calorimeter neural network"
+      ],
+      [
+        "size",
+        "5"
+      ]
+    ]
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "cf-mitigated": "challenge",
+      "content-type": "text/html; charset=UTF-8"
+    },
+    "body_text": "<html>Cloudflare challenge body removed</html>",
+    "body_sha256": "105ff843475706bba93fd760d6d1bbaf817480f04d67e03b6d74b5db4bea29d4"
+  }
+}

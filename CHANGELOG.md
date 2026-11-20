@@ -36,6 +36,23 @@
   - additive API fields: freshness reason, linked, current and last-seen symbol
     locations, relocation candidates, file issues and a link-health list. The v1 export
     schemas and goldens are unchanged.
+- M3 federated knowledge layer, public sources first (ADR 0040):
+  - async `KnowledgeProvider` port with errors as values, the authority suggestion
+    policy `asca-authority/1` (A, D or E only; human choice with a basis above it), and a
+    `FederationService` that reports every configured provider and groups results by
+    identity PIDs without fusing fields;
+  - adapters for INSPIRE-HEP, arXiv and HEPData search over one bounded httpx2 stack
+    (TLS always verified, no redirects, identity encoding, byte caps, generic
+    User-Agent, provider spacing, no retries), a local curated library, and a generic
+    MCP client (mcp 2.x) with a stdlib-only stdio guard;
+  - permission-checked TOML configuration from `--config`, `ASCA_KNOWLEDGE_CONFIG` or
+    the XDG path (never the working directory) and environment-only `ASCA_` secrets;
+  - CLI `python -m asca.infrastructure.knowledge` (`search`, `fetch`, `health`,
+    `providers`); every network call needs `--live`. There is no HTTP route;
+  - registration planning and an atomic `ProvenanceService.record_source_version`;
+  - recorded fixtures replayed offline, a network kill switch in the test suite, and
+    opt-in live tests (`ASCA_LIVE=1`, never in CI);
+  - new runtime dependencies `mcp`, `httpx2` and `defusedxml`; `httpx` is unchanged.
 
 ## 0.1.0 — Foundation (Phase 0)
 

@@ -8,7 +8,7 @@ hashes are always computed here, never taken from the caller.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from asca.application.ports import Clock, IdFactory, ProjectSummary, ProvenanceRepository
 from asca.domain.provenance import (
@@ -40,6 +40,7 @@ from asca.domain.provenance import (
     Project,
     ProjectId,
     ProvenanceGraph,
+    ProvenanceInvariantError,
     ProvenanceRecord,
     RevisionId,
     RunId,
@@ -89,6 +90,8 @@ class VersionDraft:
     content_text: str | None = None
     """Hashed only; never persisted in M1."""
     published_on: date | None = None
+    retrieved_at: datetime | None = None
+    """When ``content_text`` was retrieved; requires it; an aware UTC time not in the future."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,13 +188,24 @@ class ProvenanceService:
         self._commit(graph, [source])
         return source.id
 
-    def add_source_version(
-        self, project_id: ProjectId, source_id: SourceId, draft: VersionDraft
-    ) -> SourceVersionId:
-        graph = self.load(project_id)
-        now = self._clock.now()
-        has_text = draft.content_text is not None
-        version = SourceVersion(
+    def _version(
+        self, project_id: ProjectId, source_id: SourceId, draft: VersionDraft, now: datetime
+    ) -> SourceVersion:
+        retrieved_at: datetime | None = None
+        if draft.content_text is not None:
+            retrieved_at = now if draft.retrieved_at is None else draft.retrieved_at
+        if draft.retrieved_at is not None and (
+            draft.content_text is None
+            or not isinstance(draft.retrieved_at, datetime)
+            or draft.retrieved_at.tzinfo is None
+            or draft.retrieved_at.utcoffset() != timedelta(0)
+            or draft.retrieved_at > now
+        ):
+            raise ProvenanceInvariantError(
+                "R.draft.retrieved_at",
+                "retrieved_at requires content_text and must be a past UTC time",
+            )
+        return SourceVersion(
             id=SourceVersionId(self._new(IdKind.SOURCE_VERSION)),
             project_id=project_id,
             source_id=source_id,
@@ -203,12 +217,45 @@ class ProvenanceService:
             content_sha256=(
                 sha256_text(draft.content_text) if draft.content_text is not None else None
             ),
-            retrieved_at=now if has_text else None,
+            retrieved_at=retrieved_at,
             published_on=draft.published_on,
             recorded_at=now,
         )
+
+    def add_source_version(
+        self, project_id: ProjectId, source_id: SourceId, draft: VersionDraft
+    ) -> SourceVersionId:
+        graph = self.load(project_id)
+        version = self._version(project_id, source_id, draft, self._clock.now())
         self._commit(graph, [version])
         return version.id
+
+    def record_source_version(
+        self,
+        project_id: ProjectId,
+        source: SourceDraft | SourceId,
+        version: VersionDraft,
+    ) -> tuple[SourceId, SourceVersionId]:
+        """Create or reuse a source and append the version, all in one commit."""
+        graph = self.load(project_id)
+        now = self._clock.now()
+        records: list[ProvenanceRecord] = []
+        if isinstance(source, SourceDraft):
+            created = Source(
+                id=SourceId(self._new(IdKind.SOURCE)),
+                project_id=project_id,
+                title=source.title,
+                persistent_id=source.persistent_id,
+                created_at=now,
+            )
+            records.append(created)
+            source_id = created.id
+        else:
+            source_id = source
+        record = self._version(project_id, source_id, version, now)
+        records.append(record)
+        self._commit(graph, records)
+        return source_id, record.id
 
     def record_supersession(
         self,

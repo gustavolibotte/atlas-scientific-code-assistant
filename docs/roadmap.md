@@ -73,6 +73,10 @@ Each milestone ends with one acceptance document in `docs/development/` and gree
 
 ### M3 — Federated knowledge layer (public sources first)
 
+> Status: **done** ([ADR 0040](adr/0040-federated-knowledge-layer.md),
+> [`m3-acceptance.md`](development/m3-acceptance.md)). HEPData record fetch pending
+> maintainer-recorded fixtures.
+
 - Extend the `KnowledgeProvider` port: `search`, `fetch`, `health`; candidates carry
   provider, access class, authority, version and locator.
 - Adapters: INSPIRE-HEP REST, arXiv, HEPData, local curated documents.
